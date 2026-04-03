@@ -16,12 +16,7 @@ RUN pip install --no-cache-dir \
     transformers>=4.38.0 \
     Pillow numpy
 
-# SAM2 from HuggingFace (also reliable)
-RUN pip install --no-cache-dir \
-    "sam2 @ git+https://github.com/facebookresearch/sam2.git" || \
-    pip install --no-cache-dir segment-anything-2
-
-# Pre-download models at build time so startup is fast
+# Pre-download GroundingDINO model at build time so startup is fast
 RUN python -c "
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 print('Downloading GroundingDINO-Tiny...')

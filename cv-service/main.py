@@ -29,29 +29,9 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 gdino_model = AutoModelForZeroShotObjectDetection.from_pretrained(MODEL_ID).to(DEVICE)
 print("GroundingDINO loaded.")
 
-# Try SAM2 — fall back gracefully if not available
+# SAM2 is optional - skip it for now to avoid startup failures
 sam2_predictor = None
-try:
-    from sam2.build_sam import build_sam2
-    from sam2.sam2_image_predictor import SAM2ImagePredictor
-    from huggingface_hub import hf_hub_download
-    import os
-
-    # Download SAM2 small checkpoint
-    weights_path = "/tmp/sam2_hiera_small.pt"
-    if not os.path.exists(weights_path):
-        print("Downloading SAM2-Small checkpoint...")
-        weights_path = hf_hub_download(
-            repo_id="facebook/sam2-hiera-small",
-            filename="sam2_hiera_small.pt",
-            local_dir="/tmp"
-        )
-
-    sam2_model = build_sam2("sam2_hiera_s.yaml", weights_path, device=DEVICE)
-    sam2_predictor = SAM2ImagePredictor(sam2_model)
-    print("SAM2 loaded.")
-except Exception as e:
-    print(f"SAM2 not available (will use bbox-only mode): {e}")
+print("SAM2 disabled (bbox-only mode)")
 
 
 class DetectRequest(BaseModel):
@@ -101,7 +81,6 @@ async def detect(req: DetectRequest):
     )[0]
 
     boxes_out = []
-    boxes_pixel = []
 
     for i, (box, score, label) in enumerate(zip(
         results["boxes"], results["scores"], results["labels"]
@@ -117,35 +96,9 @@ async def detect(req: DetectRequest):
             "confidence": round(float(score), 3),
             "type": "door" if "door" in label_str else "window",
         })
-        boxes_pixel.append([px, py, int(x2), int(y2)])
 
-    masks_out = []
-
-    if sam2_predictor and boxes_pixel:
-        img_array = np.array(pil_img)
-        sam2_predictor.set_image(img_array)
-
-        for i, (box_px, box_info) in enumerate(zip(boxes_pixel, boxes_out)):
-            try:
-                input_box = np.array(box_px, dtype=np.float32)
-                masks, scores, _ = sam2_predictor.predict(
-                    point_coords=None,
-                    point_labels=None,
-                    box=input_box,
-                    multimask_output=False,
-                )
-                masks_out.append({
-                    "id": i + 1,
-                    "mask_b64": mask_to_b64(masks[0]),
-                    "bbox": box_info,
-                    "score": round(float(scores[0]), 3),
-                })
-            except Exception as e:
-                print(f"SAM2 failed box {i}: {e}")
-                masks_out.append({"id": i + 1, "mask_b64": None, "bbox": box_info, "score": 0})
-    else:
-        # No SAM2 — return None masks, frontend falls back to dilated rects
-        masks_out = [{"id": i + 1, "mask_b64": None, "bbox": b, "score": 0} for i, b in enumerate(boxes_out)]
+    # No SAM2 — return None masks, frontend falls back to dilated rects
+    masks_out = [{"id": i + 1, "mask_b64": None, "bbox": b, "score": 0} for i, b in enumerate(boxes_out)]
 
     return {
         "boxes": boxes_out,
@@ -153,7 +106,7 @@ async def detect(req: DetectRequest):
         "image_width": W,
         "image_height": H,
         "processing_time_ms": int((time.time() - t0) * 1000),
-        "sam2_available": sam2_predictor is not None,
+        "sam2_available": False,
     }
 
 
@@ -163,6 +116,6 @@ def health():
         "status": "ok",
         "models": {
             "detection": "grounding-dino-tiny (transformers)",
-            "segmentation": "sam2-small" if sam2_predictor else "unavailable (bbox-only mode)",
+            "segmentation": "unavailable (bbox-only mode)",
         }
     }
