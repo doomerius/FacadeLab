@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
 import base64
 import io
 import time
@@ -18,20 +17,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load GroundingDINO via HuggingFace Transformers (reliable, no compilation needed)
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 
 MODEL_ID = "IDEA-Research/grounding-dino-tiny"
 DEVICE = "cpu"
 
-print(f"Loading GroundingDINO ({MODEL_ID}) on {DEVICE}...")
+print(f"Loading GroundingDINO ({MODEL_ID})...")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 gdino_model = AutoModelForZeroShotObjectDetection.from_pretrained(MODEL_ID).to(DEVICE)
 print("GroundingDINO loaded.")
-
-# SAM2 is optional - skip it for now to avoid startup failures
-sam2_predictor = None
-print("SAM2 disabled (bbox-only mode)")
 
 
 class DetectRequest(BaseModel):
@@ -48,22 +42,13 @@ def decode_image(b64_str: str) -> Image.Image:
     return Image.open(io.BytesIO(data)).convert("RGB")
 
 
-def mask_to_b64(mask: np.ndarray) -> str:
-    img = Image.fromarray((mask * 255).astype(np.uint8), mode="L")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
 @app.post("/detect")
 async def detect(req: DetectRequest):
     t0 = time.time()
     pil_img = decode_image(req.image_b64)
     W, H = pil_img.size
 
-    # GroundingDINO detection via transformers
-    # Text prompt format for transformers: "window. door." (period-separated)
-    text = req.text_prompt.replace(" . ", ". ").replace(".", ".").strip()
+    text = req.text_prompt.replace(" . ", ". ").strip()
     if not text.endswith("."):
         text += "."
 
@@ -81,7 +66,6 @@ async def detect(req: DetectRequest):
     )[0]
 
     boxes_out = []
-
     for i, (box, score, label) in enumerate(zip(
         results["boxes"], results["scores"], results["labels"]
     )):
@@ -97,8 +81,9 @@ async def detect(req: DetectRequest):
             "type": "door" if "door" in label_str else "window",
         })
 
-    # No SAM2 — return None masks, frontend falls back to dilated rects
-    masks_out = [{"id": i + 1, "mask_b64": None, "bbox": b, "score": 0} for i, b in enumerate(boxes_out)]
+    # No SAM2 in this version — bbox-only mode
+    # Frontend falls back to dilated rectangles for masks
+    masks_out = [{"id": b["id"], "mask_b64": None, "bbox": b, "score": 0} for b in boxes_out]
 
     return {
         "boxes": boxes_out,
@@ -116,6 +101,6 @@ def health():
         "status": "ok",
         "models": {
             "detection": "grounding-dino-tiny (transformers)",
-            "segmentation": "unavailable (bbox-only mode)",
+            "segmentation": "unavailable (bbox-only mode — SAM2 planned for GPU upgrade)",
         }
     }
