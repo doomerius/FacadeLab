@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { useStore, actions, store } from '../stores/appStore'
-import { generateRenderPrompt, analyzeReferenceModel } from '../services/anthropic'
+import { generateRenderPrompt, buildRenderPrompt } from '../services/anthropic'
 import { generateImage, inpaintImage } from '../services/falai'
 import { generateInpaintingMask } from '../utils/imageUtils'
 import Icons from '../utils/icons'
@@ -20,11 +20,150 @@ export default function RenderPanel() {
   const [numVariations, setNumVariations] = useState(1)
   const [renderStep, setRenderStep] = useState('')
   const [error, setError] = useState(null)
+  const [promptData, setPromptData] = useState(null) // { positive, negative, inpaintingHint }
+  const [maskDataUrl, setMaskDataUrl] = useState(null)
 
   const selectedCount = selectedIds.size
   const hasFalKey = !!keys.fal
 
-  const handleRender = useCallback(async () => {
+  // Prepare annotaions with selected flag
+  const getMarkedAnnotations = useCallback(() => {
+    const s = store.getState()
+    return s.annotations.map(a => ({
+      ...a,
+      selected: s.selectedIds.has(a.id),
+      selectedForRender: s.selectedIds.has(a.id),
+    }))
+  }, [])
+
+  // Task 5a: Generate Prompt button
+  const handleGeneratePrompt = useCallback(async () => {
+    if (!sourceImage || selectedCount === 0) return
+    setError(null)
+    setRenderStep('Assembling prompt...')
+
+    try {
+      const markedAnns = getMarkedAnnotations()
+      // Use local buildRenderPrompt (no API key needed)
+      // If we have imageAnalysis cached, use it; otherwise pass empty
+      const imageAnalysis = config.cachedImageAnalysis || ''
+      const activeRef = referenceModels.find(m => m.active)
+      const configWithRef = {
+        ...config,
+        referenceDescription: activeRef ? activeRef.description : undefined,
+      }
+      const pd = buildRenderPrompt(markedAnns, configWithRef, imageAnalysis, address)
+      setPromptData(pd)
+      actions.setRenderPrompt(pd.positive)
+      setRenderStep('')
+    } catch (err) {
+      setError(err.message)
+      setRenderStep('')
+    }
+  }, [sourceImage, selectedCount, config, address, referenceModels, getMarkedAnnotations])
+
+  // Task 5b: Generate Render Tier 2 (img2img)
+  const handleRenderTier2 = useCallback(async () => {
+    if (!hasFalKey || !sourceImage || selectedCount === 0) return
+    actions.setIsRendering(true)
+    setError(null)
+    setRenderStep('Generating prompt...')
+
+    try {
+      // First ensure we have a prompt
+      let pd = promptData
+      if (!pd) {
+        const markedAnns = getMarkedAnnotations()
+        const imageAnalysis = config.cachedImageAnalysis || ''
+        const activeRef = referenceModels.find(m => m.active)
+        const configWithRef = { ...config, referenceDescription: activeRef?.description }
+        pd = buildRenderPrompt(markedAnns, configWithRef, imageAnalysis, address)
+        setPromptData(pd)
+        actions.setRenderPrompt(pd.positive)
+      }
+
+      setRenderStep(`Rendering ${numVariations} variation${numVariations > 1 ? 's' : ''} with Flux Pro (img2img)...`)
+      const imageUrls = await generateImage(
+        keys.fal,
+        pd.positive,
+        pd.negative,
+        sourceImage.dataUrl,
+        0.45,
+        numVariations
+      )
+
+      actions.setRenderResults(imageUrls.map((url, i) => ({
+        url,
+        seed: Math.floor(Math.random() * 999999),
+        selected: i === 0,
+      })))
+      setRenderStep('Complete')
+    } catch (err) {
+      setError(err.message)
+      setRenderStep('')
+    } finally {
+      actions.setIsRendering(false)
+    }
+  }, [hasFalKey, sourceImage, selectedCount, config, address, referenceModels, promptData, keys.fal, numVariations, getMarkedAnnotations])
+
+  // Task 5c: Generate Render Tier 3 (inpainting)
+  const handleRenderTier3 = useCallback(async () => {
+    if (!hasFalKey || !sourceImage || selectedCount === 0) return
+    actions.setIsRendering(true)
+    setError(null)
+    setRenderStep('Generating inpainting mask...')
+
+    try {
+      // Generate mask
+      const mask = generateInpaintingMask(
+        annotations,
+        selectedIds,
+        sourceImage.width,
+        sourceImage.height,
+        config
+      )
+      setMaskDataUrl(mask)
+
+      // Ensure prompt
+      let pd = promptData
+      if (!pd) {
+        setRenderStep('Assembling prompt...')
+        const markedAnns = getMarkedAnnotations()
+        const imageAnalysis = config.cachedImageAnalysis || ''
+        const activeRef = referenceModels.find(m => m.active)
+        const configWithRef = { ...config, referenceDescription: activeRef?.description }
+        pd = buildRenderPrompt(markedAnns, configWithRef, imageAnalysis, address)
+        setPromptData(pd)
+        actions.setRenderPrompt(pd.positive)
+      }
+
+      setRenderStep(`Rendering ${numVariations} variation${numVariations > 1 ? 's' : ''} with Flux Inpainting...`)
+      const imageUrls = await inpaintImage(
+        keys.fal,
+        pd.positive,
+        pd.negative,
+        sourceImage.dataUrl,
+        mask,
+        0.85,
+        numVariations
+      )
+
+      actions.setRenderResults(imageUrls.map((url, i) => ({
+        url,
+        seed: Math.floor(Math.random() * 999999),
+        selected: i === 0,
+      })))
+      setRenderStep('Complete')
+    } catch (err) {
+      setError(err.message)
+      setRenderStep('')
+    } finally {
+      actions.setIsRendering(false)
+    }
+  }, [hasFalKey, sourceImage, selectedCount, config, address, referenceModels, promptData, keys.fal, numVariations, annotations, selectedIds, getMarkedAnnotations])
+
+  // Legacy full render (Claude prompt + fal.ai)
+  const handleRenderFull = useCallback(async () => {
     if (!keys.anthropic || !sourceImage || selectedCount === 0) return
 
     actions.setIsRendering(true)
@@ -32,24 +171,18 @@ export default function RenderPanel() {
     setRenderStep('Generating prompt with Claude...')
 
     try {
-      // Get active reference description
       let refDesc = ''
       const activeRef = referenceModels.find(m => m.active)
       if (activeRef && keys.anthropic) {
         setRenderStep('Analyzing reference model...')
+        const { analyzeReferenceModel } = await import('../services/anthropic')
         refDesc = await analyzeReferenceModel(keys.anthropic, activeRef.dataUrl)
       }
 
-      // Mark selected annotations
-      const s = store.getState()
-      const markedAnns = s.annotations.map(a => ({
-        ...a,
-        selected: s.selectedIds.has(a.id),
-      }))
+      const markedAnns = getMarkedAnnotations()
 
-      // Generate prompt via Claude
       setRenderStep('Crafting architectural prompt...')
-      const promptData = await generateRenderPrompt(
+      const pd = await generateRenderPrompt(
         keys.anthropic,
         sourceImage.dataUrl,
         markedAnns,
@@ -58,44 +191,23 @@ export default function RenderPanel() {
         refDesc
       )
 
-      actions.setRenderPrompt(promptData.positive_prompt)
+      const positivePrompt = pd.positive_prompt || pd.positive || ''
+      actions.setRenderPrompt(positivePrompt)
+      setPromptData({ positive: positivePrompt, negative: pd.negative_prompt || '', inpaintingHint: '' })
 
-      // If fal.ai key present, generate actual image
       if (hasFalKey) {
         setRenderStep('Generating inpainting mask...')
-        const mask = generateInpaintingMask(
-          annotations,
-          selectedIds,
-          sourceImage.width,
-          sourceImage.height,
-          30
-        )
+        const mask = generateInpaintingMask(annotations, selectedIds, sourceImage.width, sourceImage.height, config)
+        setMaskDataUrl(mask)
 
         setRenderStep(`Rendering ${numVariations} variation${numVariations > 1 ? 's' : ''} with Flux Pro...`)
 
         let imageUrls
         try {
-          // Try inpainting first
-          imageUrls = await inpaintImage(
-            keys.fal,
-            promptData.positive_prompt,
-            promptData.negative_prompt,
-            sourceImage.dataUrl,
-            mask,
-            promptData.strength || 0.85,
-            numVariations
-          )
+          imageUrls = await inpaintImage(keys.fal, positivePrompt, pd.negative_prompt || '', sourceImage.dataUrl, mask, pd.strength || 0.85, numVariations)
         } catch {
-          // Fallback to img2img
           setRenderStep('Falling back to img2img generation...')
-          imageUrls = await generateImage(
-            keys.fal,
-            promptData.positive_prompt,
-            promptData.negative_prompt,
-            sourceImage.dataUrl,
-            promptData.strength || 0.45,
-            numVariations
-          )
+          imageUrls = await generateImage(keys.fal, positivePrompt, pd.negative_prompt || '', sourceImage.dataUrl, pd.strength || 0.45, numVariations)
         }
 
         actions.setRenderResults(imageUrls.map((url, i) => ({
@@ -113,7 +225,7 @@ export default function RenderPanel() {
     } finally {
       actions.setIsRendering(false)
     }
-  }, [keys, sourceImage, selectedCount, config, address, referenceModels, hasFalKey, numVariations, annotations, selectedIds])
+  }, [keys, sourceImage, selectedCount, config, address, referenceModels, hasFalKey, numVariations, annotations, selectedIds, getMarkedAnnotations])
 
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -165,34 +277,92 @@ export default function RenderPanel() {
             color: 'var(--warning)',
             lineHeight: 1.5,
           }}>
-            No fal.ai key — will generate prompt only. Add key in Settings for image generation.
+            No fal.ai key — prompt generation only. Add key in Settings for image generation.
           </div>
         )}
 
+        {/* Generate Prompt button */}
         <button
-          onClick={handleRender}
+          onClick={handleGeneratePrompt}
           disabled={isRendering || selectedCount === 0}
+          style={{
+            width: '100%',
+            padding: '10px 16px',
+            borderRadius: 'var(--radius-md)',
+            background: selectedCount === 0 ? 'var(--surface-2)' : 'var(--surface-0)',
+            color: selectedCount === 0 ? 'var(--text-disabled)' : 'var(--text-primary)',
+            border: `1px solid ${selectedCount === 0 ? 'var(--border-subtle)' : 'var(--border-default)'}`,
+            fontSize: 12,
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+          }}
+          onMouseEnter={e => selectedCount > 0 && !isRendering && (e.currentTarget.style.background = 'var(--bg-hover)')}
+          onMouseLeave={e => selectedCount > 0 && !isRendering && (e.currentTarget.style.background = 'var(--surface-0)')}
+        >
+          <Icons.Copy size={13} />
+          Generate Prompt
+        </button>
+
+        {/* Tier 2: img2img */}
+        <button
+          onClick={handleRenderTier2}
+          disabled={isRendering || selectedCount === 0 || !hasFalKey}
+          style={{
+            width: '100%',
+            padding: '10px 16px',
+            borderRadius: 'var(--radius-md)',
+            background: !hasFalKey || selectedCount === 0 ? 'var(--surface-2)' : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+            color: !hasFalKey || selectedCount === 0 ? 'var(--text-disabled)' : '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            border: 'none',
+          }}
+        >
+          {isRendering ? (
+            <>
+              <span className="animate-spin"><Icons.Loader size={13} /></span>
+              {renderStep}
+            </>
+          ) : (
+            <>
+              <Icons.Sparkles size={13} />
+              Generate Render (Tier 2 — img2img)
+            </>
+          )}
+        </button>
+
+        {/* Tier 3: inpainting */}
+        <button
+          onClick={handleRenderTier3}
+          disabled={isRendering || selectedCount === 0 || !hasFalKey}
           style={{
             width: '100%',
             padding: '14px 16px',
             borderRadius: 'var(--radius-lg)',
             background: isRendering
               ? 'var(--surface-2)'
-              : selectedCount === 0
+              : selectedCount === 0 || !hasFalKey
                 ? 'var(--surface-2)'
                 : 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 50%, #3b82f6 100%)',
-            color: isRendering || selectedCount === 0 ? 'var(--text-disabled)' : '#fff',
+            color: isRendering || selectedCount === 0 || !hasFalKey ? 'var(--text-disabled)' : '#fff',
             fontSize: 13,
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             gap: 8,
-            boxShadow: !isRendering && selectedCount > 0 ? '0 0 24px rgba(99, 102, 241, 0.25)' : 'none',
+            boxShadow: !isRendering && selectedCount > 0 && hasFalKey ? '0 0 24px rgba(99, 102, 241, 0.25)' : 'none',
             border: isRendering ? '1px solid var(--border-default)' : 'none',
             transition: 'all var(--duration-normal) var(--ease-out)',
           }}
-          onMouseEnter={e => !isRendering && selectedCount > 0 && (e.currentTarget.style.transform = 'scale(1.01)')}
+          onMouseEnter={e => !isRendering && selectedCount > 0 && hasFalKey && (e.currentTarget.style.transform = 'scale(1.01)')}
           onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
         >
           {isRendering ? (
@@ -203,10 +373,34 @@ export default function RenderPanel() {
           ) : (
             <>
               <Icons.Sparkles size={16} />
-              {selectedCount === 0 ? 'Select windows first' : `Render ${selectedCount} Balcon${selectedCount > 1 ? 'ies' : 'y'}`}
+              {selectedCount === 0 ? 'Select windows first' : `Generate Render (Tier 3 — Inpainting)`}
             </>
           )}
         </button>
+
+        {/* Full render with Claude prompt */}
+        {keys.anthropic && (
+          <button
+            onClick={handleRenderFull}
+            disabled={isRendering || selectedCount === 0}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--surface-0)',
+              border: '1px solid var(--border-subtle)',
+              fontSize: 11,
+              color: 'var(--text-tertiary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+            }}
+          >
+            <Icons.Sparkles size={11} />
+            Full Render with Claude Prompt
+          </button>
+        )}
       </div>
 
       {error && (
@@ -217,7 +411,11 @@ export default function RenderPanel() {
           border: '1px solid rgba(248, 113, 113, 0.2)',
           color: 'var(--error)',
           fontSize: 12,
+          display: 'flex',
+          gap: 8,
+          alignItems: 'flex-start',
         }}>
+          <Icons.X size={13} style={{ marginTop: 1, flexShrink: 0 }} />
           {error}
         </div>
       )}
@@ -257,23 +455,40 @@ export default function RenderPanel() {
               onMouseLeave={e => e.currentTarget.style.background = 'var(--surface-0)'}
             >
               <Icons.Copy size={11} />
-              Copy
+              Copy Prompt
             </button>
           </div>
-          <pre style={{
-            padding: 14,
-            fontSize: 11,
-            fontFamily: 'var(--font-mono)',
-            color: 'var(--text-secondary)',
-            lineHeight: 1.6,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            maxHeight: 200,
-            overflow: 'auto',
-            margin: 0,
-          }}>
-            {renderPrompt}
-          </pre>
+          <textarea
+            readOnly
+            value={renderPrompt}
+            style={{
+              width: '100%',
+              padding: 14,
+              fontSize: 11,
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+              maxHeight: 200,
+              overflow: 'auto',
+              margin: 0,
+              background: 'transparent',
+              border: 'none',
+              resize: 'vertical',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+          {promptData?.inpaintingHint && (
+            <div style={{
+              padding: '8px 14px',
+              borderTop: '1px solid var(--border-subtle)',
+              fontSize: 10,
+              color: 'var(--text-tertiary)',
+              fontStyle: 'italic',
+            }}>
+              {promptData.inpaintingHint}
+            </div>
+          )}
         </div>
       )}
 
@@ -339,7 +554,7 @@ export default function RenderPanel() {
             ))}
           </div>
 
-          {/* Download selected */}
+          {/* Download selected + Copy Prompt */}
           <div style={{ padding: '8px 14px', display: 'flex', gap: 8 }}>
             <button
               onClick={() => {
@@ -372,6 +587,27 @@ export default function RenderPanel() {
               <Icons.Download size={13} />
               Download
             </button>
+            {renderPrompt && (
+              <button
+                onClick={() => navigator.clipboard.writeText(renderPrompt)}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--surface-0)',
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: 11,
+                  color: 'var(--text-tertiary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--surface-0)'}
+              >
+                <Icons.Copy size={13} />
+                Copy Prompt
+              </button>
+            )}
           </div>
         </div>
       )}

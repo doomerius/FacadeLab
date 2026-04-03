@@ -1,5 +1,21 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react'
+import Icons from '../utils/icons'
 import { store, useStore, actions } from '../stores/appStore'
+
+// Canvas-safe color constants (CSS vars don't work in canvas context)
+const COLORS = {
+  windowFill: 'rgba(59, 130, 246, 0.12)',
+  windowBorder: '#3b82f6',
+  doorFill: 'rgba(168, 85, 247, 0.12)',
+  doorBorder: '#a855f7',
+  selectedFill: 'rgba(245, 158, 11, 0.18)',
+  selectedBorder: '#f59e0b',
+  drawPreview: '#34d399',
+  drawPreviewFill: 'rgba(52, 211, 153, 0.1)',
+  handleFill: '#ffffff',
+  handleBorder: '#f59e0b',
+  lowConfidence: 'rgba(251, 191, 36, 0.85)',
+}
 
 export default function CanvasView() {
   const containerRef = useRef(null)
@@ -13,6 +29,7 @@ export default function CanvasView() {
   const selectedIds = useStore(s => s.selectedIds)
   const activeTool = useStore(s => s.activeTool)
   const step = useStore(s => s.step)
+  const balconyConfig = useStore(s => s.balconyConfig)
 
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -110,86 +127,125 @@ export default function CanvasView() {
       const isDoor = ann.type === 'door'
 
       // Fill
-      ctx.fillStyle = isSelected
-        ? 'var(--select-amber-fill)'
-        : isDoor
-          ? 'var(--door-purple-fill)'
-          : 'var(--detect-blue-fill)'
+      ctx.fillStyle = isSelected ? COLORS.selectedFill : isDoor ? COLORS.doorFill : COLORS.windowFill
       ctx.fillRect(ann.x, ann.y, ann.w, ann.h)
 
       // Border
-      ctx.strokeStyle = isSelected
-        ? '#f59e0b'
-        : isDoor
-          ? '#a855f7'
-          : '#3b82f6'
+      ctx.strokeStyle = isSelected ? COLORS.selectedBorder : isDoor ? COLORS.doorBorder : COLORS.windowBorder
       ctx.lineWidth = isSelected ? 2 / scale : 1.5 / scale
       ctx.setLineDash(isSelected ? [] : [4 / scale, 3 / scale])
       ctx.strokeRect(ann.x, ann.y, ann.w, ann.h)
       ctx.setLineDash([])
 
-      // Label
-      const labelSize = 11 / scale
+      // Label pill above bbox
+      const labelSize = Math.max(10, 11 / scale)
       const padding = 3 / scale
       const labelText = `${ann.type === 'door' ? 'D' : 'W'}${ann.id} · F${ann.floor}`
       ctx.font = `500 ${labelSize}px Inter, sans-serif`
       const tw = ctx.measureText(labelText).width
-
-      ctx.fillStyle = isSelected ? '#f59e0b' : isDoor ? '#a855f7' : '#3b82f6'
+      const labelColor = isSelected ? COLORS.selectedBorder : isDoor ? COLORS.doorBorder : COLORS.windowBorder
+      ctx.fillStyle = labelColor
       const rx = ann.x
       const ry = ann.y - labelSize - padding * 2 - 2 / scale
       ctx.beginPath()
-      ctx.roundRect(rx, ry, tw + padding * 2, labelSize + padding * 2, 3 / scale)
+      if (ctx.roundRect) {
+        ctx.roundRect(rx, ry, tw + padding * 2, labelSize + padding * 2, 3 / scale)
+      } else {
+        ctx.rect(rx, ry, tw + padding * 2, labelSize + padding * 2)
+      }
       ctx.fill()
-
-      ctx.fillStyle = '#fff'
+      ctx.fillStyle = '#ffffff'
       ctx.fillText(labelText, rx + padding, ry + labelSize + padding - 1 / scale)
 
-      // Resize handles for selected
+      // Resize handles (only for selected + reshape tool)
       if (isSelected && activeTool === 'reshape') {
         const hs = 6 / scale
         const handles = getHandles(ann, hs)
         for (const h of handles) {
-          ctx.fillStyle = '#fff'
-          ctx.strokeStyle = '#f59e0b'
+          ctx.fillStyle = COLORS.handleFill
+          ctx.strokeStyle = COLORS.handleBorder
           ctx.lineWidth = 1.5 / scale
           ctx.fillRect(h.x - hs / 2, h.y - hs / 2, hs, hs)
           ctx.strokeRect(h.x - hs / 2, h.y - hs / 2, hs, hs)
         }
       }
 
-      // Confidence indicator
+      // Low-confidence indicator dot
       if (ann.confidence < 0.7) {
-        ctx.fillStyle = 'rgba(251, 191, 36, 0.8)'
+        ctx.fillStyle = COLORS.lowConfidence
         ctx.beginPath()
         ctx.arc(ann.x + ann.w - 4 / scale, ann.y + 4 / scale, 3 / scale, 0, Math.PI * 2)
         ctx.fill()
       }
     }
 
-    // Drawing preview
+    // Balcony preview overlay (configure and render steps)
+    if ((step === 'configure' || step === 'render') && selectedIds.size > 0) {
+      const depth = balconyConfig?.depth || 1.2
+      // scale_factor: 1m depth ≈ 40px at typical resolution
+      const scaleFactor = 40
+      const balconyHeight = Math.round(depth * scaleFactor)
+
+      for (const ann of annotations) {
+        if (!selectedIds.has(ann.id)) continue
+
+        // Balcony floor rectangle — slightly wider, below the window
+        const extraSide = Math.round(ann.w * 0.1)
+        const bx = ann.x - extraSide
+        const by = ann.y + ann.h
+        const bw = ann.w + extraSide * 2
+        const bh = balconyHeight
+
+        // Semi-transparent grey fill
+        ctx.fillStyle = 'rgba(180, 180, 200, 0.35)'
+        ctx.fillRect(bx, by, bw, bh)
+
+        // Darker border
+        ctx.strokeStyle = 'rgba(100, 100, 130, 0.7)'
+        ctx.lineWidth = 1.5 / scale
+        ctx.setLineDash([])
+        ctx.strokeRect(bx, by, bw, bh)
+
+        // Dashed railing line at top of balcony floor
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.8)'
+        ctx.lineWidth = 1.5 / scale
+        ctx.setLineDash([6 / scale, 3 / scale])
+        ctx.beginPath()
+        ctx.moveTo(bx, by)
+        ctx.lineTo(bx + bw, by)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // Depth label
+        const labelSize = Math.max(9, 10 / scale)
+        ctx.font = `500 ${labelSize}px Inter, sans-serif`
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.9)'
+        ctx.fillText(`${depth.toFixed(1)}m`, bx + 4 / scale, by + bh / 2 + labelSize / 2)
+      }
+    }
+
+    // Drawing preview (snapped to 10px grid)
     if (drawing) {
-      const x = Math.min(drawing.startX, drawing.endX)
-      const y = Math.min(drawing.startY, drawing.endY)
-      const w = Math.abs(drawing.endX - drawing.startX)
-      const h = Math.abs(drawing.endY - drawing.startY)
-      ctx.strokeStyle = '#34d399'
+      const snap = 10
+      const x = Math.round(Math.min(drawing.startX, drawing.endX) / snap) * snap
+      const y = Math.round(Math.min(drawing.startY, drawing.endY) / snap) * snap
+      const w = Math.round(Math.abs(drawing.endX - drawing.startX) / snap) * snap
+      const h = Math.round(Math.abs(drawing.endY - drawing.startY) / snap) * snap
+      ctx.strokeStyle = COLORS.drawPreview
       ctx.lineWidth = 2 / scale
       ctx.setLineDash([6 / scale, 4 / scale])
       ctx.strokeRect(x, y, w, h)
-      ctx.fillStyle = 'rgba(52, 211, 153, 0.1)'
+      ctx.fillStyle = COLORS.drawPreviewFill
       ctx.fillRect(x, y, w, h)
       ctx.setLineDash([])
-
-      // Dimension label
-      const dimText = `${Math.round(w)} x ${Math.round(h)}px`
-      ctx.font = `500 ${10 / scale}px "JetBrains Mono", monospace`
-      ctx.fillStyle = '#34d399'
+      const dimText = `${w} x ${h}px`
+      ctx.font = `500 ${Math.max(9, 10 / scale)}px "JetBrains Mono", monospace`
+      ctx.fillStyle = COLORS.drawPreview
       ctx.fillText(dimText, x, y - 4 / scale)
     }
 
     ctx.restore()
-  }, [annotations, selectedIds, activeTool, scale, offset, containerSize, drawing])
+  }, [annotations, selectedIds, activeTool, scale, offset, containerSize, drawing, step, balconyConfig])
 
   // Convert screen coords to image coords
   const screenToImage = useCallback((sx, sy) => {
@@ -324,17 +380,18 @@ export default function CanvasView() {
     }
 
     if (drawing) {
-      const x = Math.min(drawing.startX, drawing.endX)
-      const y = Math.min(drawing.startY, drawing.endY)
-      const w = Math.abs(drawing.endX - drawing.startX)
-      const h = Math.abs(drawing.endY - drawing.startY)
+      const snap = 10
+      const x = Math.round(Math.min(drawing.startX, drawing.endX) / snap) * snap
+      const y = Math.round(Math.min(drawing.startY, drawing.endY) / snap) * snap
+      const w = Math.round(Math.abs(drawing.endX - drawing.startX) / snap) * snap
+      const h = Math.round(Math.abs(drawing.endY - drawing.startY) / snap) * snap
 
       if (w > 10 && h > 10) {
         actions.addAnnotation({
-          x: Math.round(x),
-          y: Math.round(y),
-          w: Math.round(w),
-          h: Math.round(h),
+          x,
+          y,
+          w,
+          h,
           type: 'window',
           floor: 1,
           shape: 'rectangle',
@@ -442,5 +499,4 @@ function getHandles(ann, hs) {
   ]
 }
 
-// Need icons in this module
-import Icons from '../utils/icons'
+

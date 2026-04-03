@@ -35,12 +35,12 @@ const createStore = () => {
     // Balcony config (global defaults)
     balconyConfig: {
       depth: 1.2,
-      railingType: 'clear-glass',
-      material: 'white-concrete',
-      floorFinish: 'composite-decking',
-      ceilingSoffit: 'smooth-white',
+      railingType: 'clear_glass',
+      material: 'white_concrete',
+      floorFinish: 'composite_decking',
+      ceilingSoffit: 'smooth_white',
       plants: false,
-      plantDensity: 0.3,
+      plantDensity: 1,
       lighting: 'daytime',
     },
 

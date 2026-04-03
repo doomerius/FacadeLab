@@ -45,7 +45,7 @@ export async function detectWindows(apiKey, imageDataUrl, width, height) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-5',
       max_tokens: 4096,
       messages: [{
         role: 'user',
@@ -124,7 +124,7 @@ Selected windows for balcony addition: ${selectedAnns.length} windows on floors 
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-5',
       max_tokens: 2048,
       messages: [{
         role: 'user',
@@ -192,7 +192,7 @@ export async function analyzeReferenceModel(apiKey, imageDataUrl) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-5',
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -226,7 +226,7 @@ export async function validateKey(apiKey) {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-opus-4-5',
         max_tokens: 1,
         messages: [{ role: 'user', content: 'hi' }],
       }),
@@ -276,3 +276,89 @@ const SOFFIT_DESCRIPTIONS = {
 }
 
 export { RAILING_DESCRIPTIONS, MATERIAL_DESCRIPTIONS, FLOOR_DESCRIPTIONS, SOFFIT_DESCRIPTIONS }
+
+// Sprint 2: buildRenderPrompt — pure local assembly, no API call needed
+const RAILING_DESCRIPTIONS_V2 = {
+  clear_glass: 'frameless tempered glass balustrade with minimal stainless steel top rail and point fixings',
+  frosted_glass: 'acid-etched laminated glass panels, partially opaque, aluminum extrusion frame',
+  steel_bar: 'vertical steel tube balusters, powder-coated, horizontal top and bottom rails',
+  steel_mesh: 'expanded metal mesh infill panel, galvanized finish, welded to structural frame',
+  wood_slats: 'horizontal hardwood decking slats on balcony floor, matching vertical timber balusters',
+  perforated_steel: 'perforated corten steel or powder-coated steel panel, semi-transparent',
+  wire_cable: 'stainless steel horizontal wire cables, marine-grade, 10mm diameter',
+  concrete_parapet: 'in-situ cast concrete upstand parapet, smooth shuttered finish, 900mm height',
+}
+
+const MATERIAL_DESCRIPTIONS_V2 = {
+  white_concrete: 'white precast concrete slab and frame',
+  grey_concrete: 'grey exposed aggregate concrete',
+  steel_galvanized: 'hot-rolled steel frame with galvanized finish',
+  timber_oak: 'oak glulam timber structure',
+  corten: 'corten weathering steel frame and brackets',
+  aluminum: 'aluminum extrusion system, anodized finish',
+}
+
+const FLOOR_DESCRIPTIONS_V2 = {
+  composite_decking: 'composite decking boards',
+  timber_decking: 'natural timber decking',
+  porcelain_tile: 'porcelain tile finish',
+  brushed_concrete: 'brushed concrete surface',
+  steel_grating: 'open steel grating',
+}
+
+const PLANT_DENSITY_LABELS = ['no plants', 'light plant decoration', 'medium plant density with potted greenery', 'heavy lush planting with trailing vegetation']
+
+const LIGHTING_LABELS = {
+  dawn: 'soft warm dawn light, golden hour, low sun angle',
+  daytime: 'bright natural daylight, clear sky',
+  dusk: 'warm golden dusk light, sunset ambiance',
+  night: 'nighttime, artificial lighting, dark sky, illuminated balcony',
+}
+
+export function buildRenderPrompt(annotations, config, imageAnalysis, address) {
+  const selectedAnns = annotations.filter(a => a.selected || a.selectedForRender)
+
+  // Part 1: anchor
+  const anchor = 'photorealistic architectural photograph, 8k, sharp focus, professional real estate photography, natural lighting'
+
+  // Part 2: building description from imageAnalysis
+  const buildingDesc = imageAnalysis ? imageAnalysis.trim() : ''
+
+  // Part 3: modification description from config
+  const railingDesc = RAILING_DESCRIPTIONS_V2[config.railingType] || config.railingType
+  const materialDesc = MATERIAL_DESCRIPTIONS_V2[config.material] || config.material
+  const floorDesc = FLOOR_DESCRIPTIONS_V2[config.floorFinish] || config.floorFinish
+  const plantsDesc = config.plants
+    ? PLANT_DENSITY_LABELS[config.plantDensity] || 'light plant decoration'
+    : 'no plants'
+  const lightingDesc = (config.lightingEnabled !== false) ? (LIGHTING_LABELS[config.lighting] || config.lighting) : 'natural daylight'
+
+  const modDesc = [
+    `adding ${config.depth}m deep balconies to ${selectedAnns.length > 0 ? selectedAnns.length + ' window opening' + (selectedAnns.length > 1 ? 's' : '') : 'selected windows'}`,
+    `railing: ${railingDesc}`,
+    `structure: ${materialDesc}`,
+    `floor finish: ${floorDesc}`,
+    plantsDesc,
+    lightingDesc,
+  ].join(', ')
+
+  // Part 4: reference model
+  const refDesc = config.referenceDescription ? config.referenceDescription.trim() : ''
+
+  // Part 5: address context
+  const addrDesc = address ? `Location: ${address.trim()}` : ''
+
+  // Part 6: quality tail
+  const qualityTail = 'no distortion, no artifacts, architecturally accurate, structurally plausible, photographic quality'
+
+  const parts = [anchor, buildingDesc, modDesc, refDesc, addrDesc, qualityTail].filter(Boolean)
+  const positive = parts.join(', ')
+
+  const negative = 'cartoon, render, CGI look, distorted windows, melting facade, extra floors, missing floors, unrealistic proportions, oversaturated, HDR, anime, painting'
+
+  // Inpainting hint
+  const floors = selectedAnns.length > 0 ? [...new Set(selectedAnns.map(a => a.floor))].sort().join(', ') : 'all selected'
+  const inpaintingHint = `Modify the window opening regions on floors ${floors} to add balconies. Preserve all surrounding facade material and architecture.`
+
+  return { positive, negative, inpaintingHint }
+}

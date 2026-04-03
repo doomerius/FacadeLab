@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useStore, actions } from '../stores/appStore'
+import { store, useStore, actions } from '../stores/appStore'
 import { detectWindows } from '../services/anthropic'
 import Icons from '../utils/icons'
 
@@ -23,9 +23,9 @@ export default function DetectPanel() {
         sourceImage.height
       )
       actions.setAnnotations(results)
+      // Sync nextAnnotationId so manual additions don't collide
       const maxId = Math.max(0, ...results.map(r => r.id))
-      // Update next id
-      const s = store.getState ? store : { getState: () => ({}) }
+      store.setState({ nextAnnotationId: maxId + 1 })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -155,30 +155,56 @@ export default function DetectPanel() {
             </div>
           </div>
 
-          {/* Proceed button */}
-          <button
-            onClick={() => actions.setStep('configure')}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--surface-2)',
-              border: '1px solid var(--border-default)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              transition: 'all var(--duration-fast) var(--ease-out)',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.borderColor = 'var(--border-default)' }}
-          >
-            Continue to Configuration
-            <Icons.ChevronRight size={14} />
-          </button>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => actions.setActiveTool('draw')}
+              style={{
+                flex: 1,
+                padding: '10px 12px',
+                borderRadius: 'var(--radius-lg)',
+                background: 'var(--surface-2)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 500,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transition: 'all var(--duration-fast) var(--ease-out)',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.borderColor = 'var(--border-default)' }}
+            >
+              <Icons.Edit size={13} />
+              Refine Manually
+            </button>
+            <button
+              onClick={() => actions.setStep('configure')}
+              style={{
+                flex: 1,
+                padding: '10px 12px',
+                borderRadius: 'var(--radius-lg)',
+                background: 'linear-gradient(135deg, var(--accent) 0%, #818cf8 100%)',
+                border: 'none',
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                boxShadow: 'var(--shadow-glow)',
+                transition: 'all var(--duration-fast) var(--ease-out)',
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.01)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+            >
+              Configure
+              <Icons.ChevronRight size={13} />
+            </button>
+          </div>
         </>
       )}
 
@@ -274,5 +300,4 @@ function AnnotationRow({ annotation: ann }) {
   )
 }
 
-// Need store for the row component
-import { store } from '../stores/appStore'
+

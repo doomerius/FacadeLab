@@ -66,26 +66,37 @@ function downsampleImage(img) {
   return { canvas, width, height }
 }
 
-export function generateInpaintingMask(annotations, selectedIds, imageWidth, imageHeight, dilationPx = 20) {
+export function generateInpaintingMask(annotations, selectedIds, imageWidth, imageHeight, config) {
   const canvas = document.createElement('canvas')
   canvas.width = imageWidth
   canvas.height = imageHeight
   const ctx = canvas.getContext('2d')
 
+  // Support legacy call with plain dilationPx number
+  let depth = 1.2
+  if (config && typeof config === 'object') {
+    depth = config.depth || 1.2
+  } else if (typeof config === 'number') {
+    // legacy: config is dilationPx directly
+    depth = config / 40
+  }
+
+  const dilationPx = Math.round(depth * 40)
+
   // Black background
   ctx.fillStyle = '#000000'
   ctx.fillRect(0, 0, imageWidth, imageHeight)
 
-  // White regions for selected annotations
+  // White filled rectangles for each selected window, dilated by (depth * 40)px
   ctx.fillStyle = '#ffffff'
   for (const ann of annotations) {
     if (selectedIds.has(ann.id)) {
       const d = dilationPx
       ctx.fillRect(
-        ann.x - d,
-        ann.y - d,
-        ann.w + d * 2,
-        ann.h + d * 2 + Math.round(ann.h * 0.5) // extra space below for balcony slab
+        Math.max(0, ann.x - d),
+        Math.max(0, ann.y - d),
+        Math.min(imageWidth - Math.max(0, ann.x - d), ann.w + d * 2),
+        Math.min(imageHeight - Math.max(0, ann.y - d), ann.h + d * 2 + Math.round(ann.h * 0.5))
       )
     }
   }

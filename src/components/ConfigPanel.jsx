@@ -3,40 +3,38 @@ import { useStore, actions } from '../stores/appStore'
 import Icons from '../utils/icons'
 
 const RAILING_TYPES = [
-  { id: 'clear-glass', label: 'Clear Glass', desc: 'Frameless tempered glass' },
-  { id: 'frosted-glass', label: 'Frosted Glass', desc: 'Acid-etched laminated panels' },
-  { id: 'steel-bar', label: 'Steel Bar', desc: 'Vertical tube balusters' },
-  { id: 'steel-mesh', label: 'Steel Mesh', desc: 'Expanded metal mesh' },
-  { id: 'wood-slats', label: 'Wood Slats', desc: 'Hardwood timber balusters' },
-  { id: 'perforated-steel', label: 'Perforated Steel', desc: 'Corten/powder-coated panel' },
-  { id: 'wire-cable', label: 'Wire Cable', desc: 'Horizontal steel cables' },
-  { id: 'concrete-parapet', label: 'Concrete Parapet', desc: 'Cast concrete upstand' },
+  { id: 'clear_glass', label: 'Clear Glass', desc: 'frameless tempered glass balustrade with minimal stainless steel top rail and point fixings' },
+  { id: 'frosted_glass', label: 'Frosted Glass', desc: 'acid-etched laminated glass panels, partially opaque, aluminum extrusion frame' },
+  { id: 'steel_bar', label: 'Steel Bar', desc: 'vertical steel tube balusters, powder-coated, horizontal top and bottom rails' },
+  { id: 'steel_mesh', label: 'Steel Mesh', desc: 'expanded metal mesh infill panel, galvanized finish, welded to structural frame' },
+  { id: 'wood_slats', label: 'Wood Slats', desc: 'horizontal hardwood decking slats on balcony floor, matching vertical timber balusters' },
+  { id: 'perforated_steel', label: 'Perforated Steel', desc: 'perforated corten steel or powder-coated steel panel, semi-transparent' },
+  { id: 'wire_cable', label: 'Wire Cable', desc: 'stainless steel horizontal wire cables, marine-grade, 10mm diameter' },
+  { id: 'concrete_parapet', label: 'Concrete Parapet', desc: 'in-situ cast concrete upstand parapet, smooth shuttered finish, 900mm height' },
 ]
 
 const MATERIALS = [
-  { id: 'white-concrete', label: 'White Concrete' },
-  { id: 'grey-concrete', label: 'Grey Concrete' },
-  { id: 'steel-galvanized', label: 'Steel (Galvanized)' },
-  { id: 'steel-painted', label: 'Steel (Painted)' },
-  { id: 'timber-pine', label: 'Timber (Pine)' },
-  { id: 'timber-oak', label: 'Timber (Oak)' },
+  { id: 'white_concrete', label: 'White Concrete' },
+  { id: 'grey_concrete', label: 'Grey Concrete' },
+  { id: 'steel_galvanized', label: 'Steel (Galvanized)' },
+  { id: 'timber_oak', label: 'Timber (Oak)' },
   { id: 'corten', label: 'Corten Steel' },
   { id: 'aluminum', label: 'Aluminum' },
 ]
 
 const FLOOR_FINISHES = [
-  { id: 'composite-decking', label: 'Composite Decking' },
-  { id: 'timber-decking', label: 'Timber Decking' },
-  { id: 'porcelain-tile', label: 'Porcelain Tile' },
-  { id: 'brushed-concrete', label: 'Brushed Concrete' },
-  { id: 'steel-grating', label: 'Steel Grating' },
+  { id: 'composite_decking', label: 'Composite Decking' },
+  { id: 'timber_decking', label: 'Timber Decking' },
+  { id: 'porcelain_tile', label: 'Porcelain Tile' },
+  { id: 'brushed_concrete', label: 'Brushed Concrete' },
+  { id: 'steel_grating', label: 'Steel Grating' },
 ]
 
-const SOFFITS = [
-  { id: 'smooth-white', label: 'Smooth White' },
-  { id: 'exposed-concrete', label: 'Exposed Concrete' },
-  { id: 'timber-cladding', label: 'Timber Cladding' },
-  { id: 'steel-plate', label: 'Steel Plate' },
+const PLANT_DENSITIES = [
+  { value: 0, label: 'None' },
+  { value: 1, label: 'Light' },
+  { value: 2, label: 'Medium' },
+  { value: 3, label: 'Heavy' },
 ]
 
 const LIGHTING = [
@@ -49,7 +47,6 @@ const LIGHTING = [
 export default function ConfigPanel() {
   const config = useStore(s => s.balconyConfig)
   const selectedIds = useStore(s => s.selectedIds)
-  const annotations = useStore(s => s.annotations)
   const selectedCount = selectedIds.size
 
   return (
@@ -127,64 +124,87 @@ export default function ConfigPanel() {
 
       {/* Railing Type */}
       <Section title="Railing Type">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        <select
+          value={config.railingType}
+          onChange={(e) => actions.setBalconyConfig({ railingType: e.target.value })}
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--surface-0)',
+            border: '1px solid var(--border-default)',
+            color: 'var(--text-primary)',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
           {RAILING_TYPES.map(r => (
-            <OptionCard
-              key={r.id}
-              selected={config.railingType === r.id}
-              label={r.label}
-              desc={r.desc}
-              onClick={() => actions.setBalconyConfig({ railingType: r.id })}
-            />
+            <option key={r.id} value={r.id}>{r.label}</option>
           ))}
-        </div>
+        </select>
+        {config.railingType && (
+          <div style={{
+            marginTop: 6,
+            padding: '6px 8px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--surface-0)',
+            border: '1px solid var(--border-subtle)',
+            fontSize: 10,
+            color: 'var(--text-tertiary)',
+            lineHeight: 1.5,
+          }}>
+            {RAILING_TYPES.find(r => r.id === config.railingType)?.desc}
+          </div>
+        )}
       </Section>
 
       {/* Structure Material */}
       <Section title="Structure Material">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        <select
+          value={config.material}
+          onChange={(e) => actions.setBalconyConfig({ material: e.target.value })}
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--surface-0)',
+            border: '1px solid var(--border-default)',
+            color: 'var(--text-primary)',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
           {MATERIALS.map(m => (
-            <OptionChip
-              key={m.id}
-              selected={config.material === m.id}
-              label={m.label}
-              onClick={() => actions.setBalconyConfig({ material: m.id })}
-            />
+            <option key={m.id} value={m.id}>{m.label}</option>
           ))}
-        </div>
+        </select>
       </Section>
 
       {/* Floor Finish */}
       <Section title="Floor Finish">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <select
+          value={config.floorFinish}
+          onChange={(e) => actions.setBalconyConfig({ floorFinish: e.target.value })}
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--surface-0)',
+            border: '1px solid var(--border-default)',
+            color: 'var(--text-primary)',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
           {FLOOR_FINISHES.map(f => (
-            <OptionChip
-              key={f.id}
-              selected={config.floorFinish === f.id}
-              label={f.label}
-              onClick={() => actions.setBalconyConfig({ floorFinish: f.id })}
-            />
+            <option key={f.id} value={f.id}>{f.label}</option>
           ))}
-        </div>
-      </Section>
-
-      {/* Soffit */}
-      <Section title="Ceiling Soffit">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {SOFFITS.map(s => (
-            <OptionChip
-              key={s.id}
-              selected={config.ceilingSoffit === s.id}
-              label={s.label}
-              onClick={() => actions.setBalconyConfig({ ceilingSoffit: s.id })}
-            />
-          ))}
-        </div>
+        </select>
       </Section>
 
       {/* Plants */}
       <Section title="Plants & Greenery">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: config.plants ? 10 : 0 }}>
           <ToggleSwitch
             value={config.plants}
             onChange={(v) => actions.setBalconyConfig({ plants: v })}
@@ -194,39 +214,38 @@ export default function ConfigPanel() {
           </span>
         </div>
         {config.plants && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={config.plantDensity}
-              onChange={(e) => actions.setBalconyConfig({ plantDensity: parseFloat(e.target.value) })}
-              style={{
-                flex: 1, height: 4, appearance: 'none',
-                background: `linear-gradient(to right, var(--success) ${config.plantDensity * 100}%, var(--surface-3) ${config.plantDensity * 100}%)`,
-                borderRadius: 'var(--radius-full)', outline: 'none', cursor: 'pointer',
-              }}
-            />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', minWidth: 36, textAlign: 'right' }}>
-              {Math.round(config.plantDensity * 100)}%
-            </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {PLANT_DENSITIES.map(d => (
+              <OptionChip
+                key={d.value}
+                selected={config.plantDensity === d.value}
+                label={d.label}
+                onClick={() => actions.setBalconyConfig({ plantDensity: d.value })}
+              />
+            ))}
           </div>
         )}
       </Section>
 
       {/* Lighting */}
       <Section title="Lighting">
-        <div style={{ display: 'flex', gap: 6 }}>
-          {LIGHTING.map(l => (
-            <OptionChip
-              key={l.id}
-              selected={config.lighting === l.id}
-              label={l.label}
-              onClick={() => actions.setBalconyConfig({ lighting: l.id })}
-            />
-          ))}
-        </div>
+        <ToggleSwitch
+          value={config.lightingEnabled !== false}
+          onChange={(v) => actions.setBalconyConfig({ lightingEnabled: v })}
+          label={config.lightingEnabled !== false ? 'Custom lighting' : 'Default lighting'}
+        />
+        {config.lightingEnabled !== false && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            {LIGHTING.map(l => (
+              <OptionChip
+                key={l.id}
+                selected={config.lighting === l.id}
+                label={l.label}
+                onClick={() => actions.setBalconyConfig({ lighting: l.id })}
+              />
+            ))}
+          </div>
+        )}
       </Section>
 
       {/* Proceed to render */}
@@ -296,33 +315,6 @@ function Section({ title, children }) {
   )
 }
 
-function OptionCard({ selected, label, desc, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '10px 12px',
-        borderRadius: 'var(--radius-md)',
-        background: selected ? 'var(--accent-muted)' : 'var(--surface-0)',
-        border: `1px solid ${selected ? 'var(--border-focus)' : 'var(--border-subtle)'}`,
-        textAlign: 'left',
-        transition: 'all var(--duration-fast) var(--ease-out)',
-      }}
-      onMouseEnter={e => !selected && (e.currentTarget.style.borderColor = 'var(--border-strong)')}
-      onMouseLeave={e => !selected && (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
-    >
-      <div style={{ fontSize: 12, fontWeight: 500, color: selected ? 'var(--accent)' : 'var(--text-primary)', marginBottom: 2 }}>
-        {label}
-      </div>
-      {desc && (
-        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', lineHeight: 1.3 }}>
-          {desc}
-        </div>
-      )}
-    </button>
-  )
-}
-
 function OptionChip({ selected, label, onClick }) {
   return (
     <button
@@ -337,6 +329,7 @@ function OptionChip({ selected, label, onClick }) {
         color: selected ? 'var(--accent)' : 'var(--text-secondary)',
         whiteSpace: 'nowrap',
         transition: 'all var(--duration-fast) var(--ease-out)',
+        flex: 1,
       }}
       onMouseEnter={e => !selected && (e.currentTarget.style.borderColor = 'var(--border-strong)')}
       onMouseLeave={e => !selected && (e.currentTarget.style.borderColor = 'var(--border-subtle)')}
@@ -346,31 +339,39 @@ function OptionChip({ selected, label, onClick }) {
   )
 }
 
-function ToggleSwitch({ value, onChange }) {
+function ToggleSwitch({ value, onChange, label }) {
   return (
-    <button
-      onClick={() => onChange(!value)}
-      style={{
-        width: 40,
-        height: 22,
-        borderRadius: 'var(--radius-full)',
-        background: value ? 'var(--accent)' : 'var(--surface-3)',
-        padding: 2,
-        display: 'flex',
-        alignItems: 'center',
-        transition: 'background var(--duration-fast) var(--ease-out)',
-        border: `1px solid ${value ? 'var(--accent)' : 'var(--border-default)'}`,
-      }}
-    >
-      <div style={{
-        width: 16,
-        height: 16,
-        borderRadius: '50%',
-        background: '#fff',
-        transform: value ? 'translateX(18px)' : 'translateX(0)',
-        transition: 'transform var(--duration-fast) var(--ease-spring)',
-        boxShadow: 'var(--shadow-sm)',
-      }} />
-    </button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <button
+        onClick={() => onChange(!value)}
+        style={{
+          width: 40,
+          height: 22,
+          borderRadius: 'var(--radius-full)',
+          background: value ? 'var(--accent)' : 'var(--surface-3)',
+          padding: 2,
+          display: 'flex',
+          alignItems: 'center',
+          transition: 'background var(--duration-fast) var(--ease-out)',
+          border: `1px solid ${value ? 'var(--accent)' : 'var(--border-default)'}`,
+          flexShrink: 0,
+        }}
+      >
+        <div style={{
+          width: 16,
+          height: 16,
+          borderRadius: '50%',
+          background: '#fff',
+          transform: value ? 'translateX(18px)' : 'translateX(0)',
+          transition: 'transform var(--duration-fast) var(--ease-spring)',
+          boxShadow: 'var(--shadow-sm)',
+        }} />
+      </button>
+      {label && (
+        <span style={{ fontSize: 12, color: value ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
+          {label}
+        </span>
+      )}
+    </div>
   )
 }
