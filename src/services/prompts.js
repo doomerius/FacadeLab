@@ -1,34 +1,53 @@
 // Specialized prompts for different FacadeLab operation modes
 // These are the actual prompts sent to Claude for analysis and to the image models for generation
 
-export const DETECTION_PROMPT = `You are analyzing a building facade photograph for architectural renovation planning.
+export function DETECTION_PROMPT(width, height) {
+  return `You are analyzing a building facade photograph for architectural renovation planning.
 
-Your task: identify every window and door opening visible on the facade.
+First, briefly analyze the building structure:
+- Count the number of floors visible
+- Estimate the height of one floor in pixels
+- Note the horizontal spacing pattern of windows
 
-Return ONLY a valid JSON array. No explanation, no markdown formatting, no preamble.
+Then return a JSON object describing all window and door openings.
 
-Each object in the array:
+Image dimensions: ${width}x${height}px
+
+Return a JSON object with this structure:
 {
-  "id": integer (sequential from 1),
-  "x": integer (left edge, pixels from left of image),
-  "y": integer (top edge, pixels from top of image),
-  "w": integer (width in pixels),
-  "h": integer (height in pixels),
-  "type": "window" | "door",
-  "floor": integer (floor number, 1 = ground level),
-  "shape": "rectangle" | "arch" | "circular" | "other",
-  "confidence": float (0.0-1.0, your certainty about this detection),
-  "occluded": boolean (true if partially blocked by vegetation, another element, etc)
+  "building": {
+    "floors": integer,
+    "floor_height_px": integer,
+    "window_count": integer
+  },
+  "openings": [
+    {
+      "id": integer,
+      "x": integer, "y": integer, "w": integer, "h": integer,
+      "type": "window" | "door",
+      "floor": integer,
+      "shape": "rectangle" | "arch" | "circular" | "other",
+      "confidence": float,
+      "occluded": boolean,
+      "has_balcony": boolean,
+      "group_id": integer or null,
+      "window_style": "double_hung" | "casement" | "fixed" | "sliding" | "unknown"
+    }
+  ]
 }
 
 Rules:
-- Include every opening you can identify, including partially visible ones at edges
+- Assign floor 1 to ground level
+- Use the floor_height_px to be consistent: windows at similar y-positions are on the same floor
+- Windows in the same horizontal run (same floor, evenly spaced, same size) share the same group_id
+- has_balcony: true if there is already a balcony or railing attached to this window
+- occluded: true if >20% of the window is hidden
 - x,y is the top-left corner of the tightest bounding rectangle around the opening
 - For arched windows, use the bounding rectangle of the full arch including the curved portion
 - If you see a window that has been filled in or bricked up, do not include it
-- Estimate floor number from the vertical position and the typical floor height visible
 - Include any skylights or roof lights with floor set to the roof level
-- Set occluded=true if any significant portion of the window is hidden`
+- Return ONLY the JSON object, no markdown, no explanation`
+}
 
 export const BUILDING_ANALYSIS_PROMPT = `You are an expert architectural analyst. Analyze this building facade photograph and provide a concise description for use in an AI image generation prompt.
 

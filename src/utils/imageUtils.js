@@ -66,7 +66,26 @@ function downsampleImage(img) {
   return { canvas, width, height }
 }
 
-export function generateInpaintingMask(annotations, selectedIds, imageWidth, imageHeight, config) {
+function loadImageEl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = url
+  })
+}
+
+function drawDilatedRect(ctx, ann, dilation, imageWidth, imageHeight) {
+  ctx.fillStyle = 'white'
+  const x = Math.max(0, ann.x - dilation)
+  const y = Math.max(0, ann.y - dilation)
+  const w = Math.min(imageWidth - x, ann.w + dilation * 2)
+  const h = Math.min(imageHeight - y, ann.h + dilation * 2 + Math.round(ann.h * 0.5))
+  ctx.fillRect(x, y, w, h)
+}
+
+export async function generateInpaintingMask(annotations, selectedIds, imageWidth, imageHeight, config) {
   const canvas = document.createElement('canvas')
   canvas.width = imageWidth
   canvas.height = imageHeight
@@ -77,7 +96,6 @@ export function generateInpaintingMask(annotations, selectedIds, imageWidth, ima
   if (config && typeof config === 'object') {
     depth = config.depth || 1.2
   } else if (typeof config === 'number') {
-    // legacy: config is dilationPx directly
     depth = config / 40
   }
 
@@ -87,17 +105,22 @@ export function generateInpaintingMask(annotations, selectedIds, imageWidth, ima
   ctx.fillStyle = '#000000'
   ctx.fillRect(0, 0, imageWidth, imageHeight)
 
-  // White filled rectangles for each selected window, dilated by (depth * 40)px
-  ctx.fillStyle = '#ffffff'
-  for (const ann of annotations) {
-    if (selectedIds.has(ann.id)) {
-      const d = dilationPx
-      ctx.fillRect(
-        Math.max(0, ann.x - d),
-        Math.max(0, ann.y - d),
-        Math.min(imageWidth - Math.max(0, ann.x - d), ann.w + d * 2),
-        Math.min(imageHeight - Math.max(0, ann.y - d), ann.h + d * 2 + Math.round(ann.h * 0.5))
-      )
+  const selected = annotations.filter(a => selectedIds.has(a.id))
+
+  for (const ann of selected) {
+    if (ann.maskUrl && ann.hasSAMMask) {
+      // Fetch and composite the SAM2 mask (white pixels = masked region)
+      try {
+        const img = await loadImageEl(ann.maskUrl)
+        ctx.globalCompositeOperation = 'screen'
+        ctx.drawImage(img, 0, 0, imageWidth, imageHeight)
+        ctx.globalCompositeOperation = 'source-over'
+      } catch {
+        // Fall back to rectangle
+        drawDilatedRect(ctx, ann, dilationPx, imageWidth, imageHeight)
+      }
+    } else {
+      drawDilatedRect(ctx, ann, dilationPx, imageWidth, imageHeight)
     }
   }
 

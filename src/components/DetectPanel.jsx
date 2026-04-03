@@ -9,33 +9,46 @@ export default function DetectPanel() {
   const isDetecting = useStore(s => s.isDetecting)
   const annotations = useStore(s => s.annotations)
   const [error, setError] = useState(null)
+  const [detectStage, setDetectStage] = useState(null) // 'claude' | 'sam2' | null
+  const [buildingMeta, setBuildingMeta] = useState(null)
 
   const handleDetect = async () => {
     if (!keys.anthropic || !sourceImage) return
     actions.setIsDetecting(true)
     setError(null)
+    setDetectStage('claude')
+    setBuildingMeta(null)
 
     try {
       const results = await detectWindows(
         keys.anthropic,
         sourceImage.dataUrl,
         sourceImage.width,
-        sourceImage.height
+        sourceImage.height,
+        keys.fal || null,
+        (stage) => setDetectStage(stage)
       )
+      // Extract building metadata if present
+      if (results._buildingMeta) {
+        setBuildingMeta(results._buildingMeta)
+      }
       actions.setAnnotations(results)
-      // Sync nextAnnotationId so manual additions don't collide
       const maxId = Math.max(0, ...results.map(r => r.id))
       store.setState({ nextAnnotationId: maxId + 1 })
     } catch (err) {
       setError(err.message)
     } finally {
       actions.setIsDetecting(false)
+      setDetectStage(null)
     }
   }
 
   const windowCount = annotations.filter(a => a.type === 'window').length
   const doorCount = annotations.filter(a => a.type === 'door').length
   const floors = [...new Set(annotations.map(a => a.floor))].sort((a, b) => a - b)
+  const samCount = annotations.filter(a => a.hasSAMMask).length
+  const balconyCount = annotations.filter(a => a.has_balcony).length
+  const groups = [...new Set(annotations.map(a => a.group_id).filter(g => g != null))]
 
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -71,7 +84,7 @@ export default function DetectPanel() {
         {isDetecting ? (
           <>
             <span className="animate-spin"><Icons.Loader size={16} /></span>
-            Analyzing facade with Claude Vision...
+            {detectStage === 'sam2' ? 'Stage 2: Refining masks with SAM2...' : 'Stage 1: Analysing structure with Claude...'}
           </>
         ) : !keys.anthropic ? (
           <>
@@ -132,9 +145,40 @@ export default function DetectPanel() {
         </div>
       )}
 
+      {/* SAM2 hint when no fal key */}
+      {!keys.fal && keys.anthropic && (
+        <div style={{
+          padding: '8px 12px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--info-muted)',
+          border: '1px solid rgba(96,165,250,0.15)',
+          fontSize: 11,
+          color: 'var(--info)',
+          lineHeight: 1.5,
+        }}>
+          🔬 Add a fal.ai key in Settings to enable pixel-accurate masks (Stage 2)
+        </div>
+      )}
+
       {/* Results summary */}
       {annotations.length > 0 && (
         <>
+          {/* Building summary */}
+          {buildingMeta && (
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-md)',
+              background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.08) 100%)',
+              border: '1px solid rgba(99,102,241,0.2)',
+              fontSize: 12,
+              color: 'var(--text-secondary)',
+              lineHeight: 1.6,
+            }}>
+              🏢 <strong style={{ color: 'var(--text-primary)' }}>Building Analysis:</strong> {buildingMeta.floors} floor{buildingMeta.floors !== 1 ? 's' : ''}, {buildingMeta.window_count || windowCount} windows{doorCount > 0 ? `, ${doorCount} door${doorCount !== 1 ? 's' : ''}` : ''}
+              {samCount > 0 && <span style={{ opacity: 0.7 }}> · {samCount} SAM2 masks</span>}
+            </div>
+          )}
+
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
@@ -332,9 +376,28 @@ function AnnotationRow({ annotation: ann }) {
       <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
         Floor {ann.floor}
       </span>
+      {ann.group_id != null && (
+        <span style={{
+          fontSize: 9,
+          padding: '1px 5px',
+          borderRadius: 'var(--radius-full)',
+          background: 'rgba(99,102,241,0.15)',
+          color: 'var(--accent)',
+          fontWeight: 600,
+          fontFamily: 'var(--font-mono)',
+        }}>
+          G{ann.group_id}
+        </span>
+      )}
+      {ann.has_balcony && (
+        <span title="Already has a balcony" style={{ fontSize: 12 }}>⚠️</span>
+      )}
       <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
         {ann.w}x{ann.h}
       </span>
+      {ann.hasSAMMask && (
+        <span style={{ fontSize: 9, color: 'var(--success, #22c55e)', fontWeight: 500 }} title="SAM2 pixel mask">✓</span>
+      )}
       {ann.confidence < 0.7 && (
         <span style={{ fontSize: 9, color: 'var(--warning)', fontWeight: 500 }}>LOW</span>
       )}

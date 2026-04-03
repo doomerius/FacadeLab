@@ -144,7 +144,7 @@ export default function RenderPanel() {
 
       if (renderTier === 'tier3') {
         setLoadingStep('Generating inpainting mask...')
-        const mask = generateInpaintingMask(
+        const mask = await generateInpaintingMask(
           annotations,
           selectedIds,
           sourceImage.width,

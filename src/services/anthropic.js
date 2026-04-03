@@ -1,15 +1,13 @@
 // Anthropic Claude API service — window detection + prompt generation
-import { DETECTION_PROMPT as DETECTION_PROMPT_BASE, BUILDING_ANALYSIS_PROMPT, RENDER_MODES, RAILING_DESCRIPTIONS as RD, MATERIAL_DESCRIPTIONS as MD, FLOOR_DESCRIPTIONS as FD } from './prompts'
+import { DETECTION_PROMPT, BUILDING_ANALYSIS_PROMPT, RENDER_MODES, RAILING_DESCRIPTIONS as RD, MATERIAL_DESCRIPTIONS as MD, FLOOR_DESCRIPTIONS as FD } from './prompts'
+import { segmentByPoint } from './falai'
 
-const DETECTION_PROMPT = (width, height) => `${DETECTION_PROMPT_BASE}
-- Be precise with coordinates — accuracy matters for downstream processing
-
-Image dimensions: ${width}x${height}px
-Return ONLY the JSON array, no markdown fences.`
-
-export async function detectWindows(apiKey, imageDataUrl, width, height) {
+export async function detectWindows(apiKey, imageDataUrl, width, height, falApiKey = null, onStageChange = null) {
   const base64 = imageDataUrl.split(',')[1]
   const mediaType = imageDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+
+  // Stage 1: Claude structural analysis + bounding boxes
+  if (onStageChange) onStageChange('claude')
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -48,25 +46,52 @@ export async function detectWindows(apiKey, imageDataUrl, width, height) {
 
   if (!text) throw new Error('No response from Claude — check your API key and try again')
 
-  // Extract JSON array robustly — find first [ and last ] in the response
-  const start = text.indexOf('[')
-  const end = text.lastIndexOf(']')
-  if (start === -1 || end === -1 || end < start) {
-    console.error('Claude raw response:', text.slice(0, 500))
-    throw new Error('Claude did not return a JSON array. Response: ' + text.slice(0, 200))
-  }
-  const jsonStr = text.slice(start, end + 1)
+  // Parse new JSON object format: { building: {...}, openings: [...] }
+  // Also handle legacy array format for backwards compat
+  let parsed
+  let buildingMeta = null
+  let openingsArray
 
-  let annotations
+  const jsonStr = text.trim()
   try {
-    annotations = JSON.parse(jsonStr)
-  } catch (parseErr) {
-    console.error('JSON parse failed, raw:', jsonStr.slice(0, 500))
-    throw new Error('Detection response was not valid JSON. Try again or use a higher-resolution image.')
-  }
-  if (!Array.isArray(annotations)) throw new Error('Expected JSON array')
+    parsed = JSON.parse(jsonStr)
+  } catch {
+    // Try extracting JSON object or array from response
+    const objStart = jsonStr.indexOf('{')
+    const objEnd = jsonStr.lastIndexOf('}')
+    const arrStart = jsonStr.indexOf('[')
+    const arrEnd = jsonStr.lastIndexOf(']')
 
-  return annotations.map((a, i) => ({
+    if (objStart !== -1 && objEnd > objStart && (arrStart === -1 || objStart < arrStart)) {
+      try {
+        parsed = JSON.parse(jsonStr.slice(objStart, objEnd + 1))
+      } catch {
+        // fall through
+      }
+    }
+    if (!parsed && arrStart !== -1 && arrEnd > arrStart) {
+      try {
+        parsed = JSON.parse(jsonStr.slice(arrStart, arrEnd + 1))
+      } catch {
+        // fall through
+      }
+    }
+    if (!parsed) {
+      console.error('Claude raw response:', text.slice(0, 500))
+      throw new Error('Detection response was not valid JSON. Try again or use a higher-resolution image.')
+    }
+  }
+
+  if (Array.isArray(parsed)) {
+    openingsArray = parsed
+  } else if (parsed.openings && Array.isArray(parsed.openings)) {
+    buildingMeta = parsed.building || null
+    openingsArray = parsed.openings
+  } else {
+    throw new Error('Unexpected response structure from Claude')
+  }
+
+  let annotations = openingsArray.map((a, i) => ({
     id: i + 1,
     x: Math.round(a.x),
     y: Math.round(a.y),
@@ -77,8 +102,39 @@ export async function detectWindows(apiKey, imageDataUrl, width, height) {
     shape: a.shape || 'rectangle',
     confidence: a.confidence || 0.8,
     occluded: a.occluded || false,
+    has_balcony: a.has_balcony || false,
+    group_id: a.group_id ?? null,
+    window_style: a.window_style || 'unknown',
     selected: false,
   }))
+
+  // Stage 2: SAM2 pixel-perfect masks (if fal key provided)
+  if (falApiKey && annotations.length > 0) {
+    if (onStageChange) onStageChange('sam2')
+    annotations = await refineWithSAM2(falApiKey, imageDataUrl, annotations, width, height)
+  }
+
+  // Attach building metadata to first annotation as _buildingMeta (consumed by UI)
+  if (buildingMeta && annotations.length > 0) {
+    annotations._buildingMeta = buildingMeta
+  }
+
+  return annotations
+}
+
+async function refineWithSAM2(falApiKey, imageDataUrl, annotations, width, height) {
+  const refined = []
+  for (const ann of annotations) {
+    try {
+      const centerX = ann.x + ann.w / 2
+      const centerY = ann.y + ann.h / 2
+      const maskUrl = await segmentByPoint(falApiKey, imageDataUrl, centerX, centerY, width, height)
+      refined.push({ ...ann, maskUrl, hasSAMMask: !!maskUrl })
+    } catch {
+      refined.push({ ...ann, hasSAMMask: false })
+    }
+  }
+  return refined
 }
 
 export async function generateRenderPrompt(apiKey, imageDataUrl, annotations, config, address, referenceDescription) {

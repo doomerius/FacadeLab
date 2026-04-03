@@ -91,6 +91,31 @@ export async function generateImageNanoBanana(apiKey, prompt, imageBase64 = null
   return []
 }
 
+// EVF-SAM2: text-prompted segmentation — returns pixel mask for a text description + image
+export async function segmentByText(apiKey, imageBase64, textPrompt) {
+  const data = await falPost(apiKey, 'fal-ai/evf-sam', {
+    image_url: toDataUri(imageBase64),
+    prompt: textPrompt,
+  })
+  return data.image?.url || data.images?.[0]?.url || null
+}
+
+// SAM2: point-prompted segmentation — returns pixel mask for a specific point on image
+export async function segmentByPoint(apiKey, imageBase64, pointX, pointY, imageWidth, imageHeight) {
+  const data = await falPost(apiKey, 'fal-ai/sam2/image', {
+    image_url: toDataUri(imageBase64),
+    prompts: [{
+      type: 'point',
+      data: {
+        x: pointX / imageWidth,
+        y: pointY / imageHeight,
+        label: 1,
+      }
+    }]
+  })
+  return data.masks?.[0]?.mask_url || data.combined_mask?.url || null
+}
+
 export async function validateKey(apiKey) {
   try {
     // A minimal request — will fail with 422 (bad params) but not 401/403 if key is valid
