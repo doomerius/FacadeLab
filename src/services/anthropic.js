@@ -21,7 +21,7 @@ export async function detectWindows(apiKey, imageDataUrl, width, height) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5',
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [{
         role: 'user',
         content: [
@@ -46,13 +46,24 @@ export async function detectWindows(apiKey, imageDataUrl, width, height) {
   const data = await response.json()
   const text = data.content?.[0]?.text || ''
 
-  // Parse JSON from response — handle potential markdown fences
-  let jsonStr = text.trim()
-  if (jsonStr.startsWith('```')) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
-  }
+  if (!text) throw new Error('No response from Claude — check your API key and try again')
 
-  const annotations = JSON.parse(jsonStr)
+  // Extract JSON array robustly — find first [ and last ] in the response
+  const start = text.indexOf('[')
+  const end = text.lastIndexOf(']')
+  if (start === -1 || end === -1 || end < start) {
+    console.error('Claude raw response:', text.slice(0, 500))
+    throw new Error('Claude did not return a JSON array. Response: ' + text.slice(0, 200))
+  }
+  const jsonStr = text.slice(start, end + 1)
+
+  let annotations
+  try {
+    annotations = JSON.parse(jsonStr)
+  } catch (parseErr) {
+    console.error('JSON parse failed, raw:', jsonStr.slice(0, 500))
+    throw new Error('Detection response was not valid JSON. Try again or use a higher-resolution image.')
+  }
   if (!Array.isArray(annotations)) throw new Error('Expected JSON array')
 
   return annotations.map((a, i) => ({
