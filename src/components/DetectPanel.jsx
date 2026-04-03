@@ -43,31 +43,40 @@ export default function DetectPanel() {
       <button
         onClick={handleDetect}
         disabled={isDetecting || !keys.anthropic}
+        title={!keys.anthropic ? 'Anthropic API key required — add in Settings' : undefined}
         style={{
           width: '100%',
           padding: '14px 16px',
           borderRadius: 'var(--radius-lg)',
-          background: isDetecting
+          background: !keys.anthropic
+            ? 'var(--surface-2)'
+            : isDetecting
             ? 'var(--surface-2)'
             : 'linear-gradient(135deg, var(--accent) 0%, #818cf8 100%)',
-          color: isDetecting ? 'var(--text-secondary)' : '#fff',
+          color: (!keys.anthropic || isDetecting) ? 'var(--text-secondary)' : '#fff',
           fontSize: 13,
           fontWeight: 600,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 8,
-          boxShadow: isDetecting ? 'none' : 'var(--shadow-glow)',
-          border: isDetecting ? '1px solid var(--border-default)' : 'none',
+          boxShadow: (!keys.anthropic || isDetecting) ? 'none' : 'var(--shadow-glow)',
+          border: (!keys.anthropic || isDetecting) ? '1px solid var(--border-default)' : 'none',
           transition: 'all var(--duration-normal) var(--ease-out)',
+          cursor: !keys.anthropic ? 'not-allowed' : undefined,
         }}
-        onMouseEnter={e => !isDetecting && (e.currentTarget.style.transform = 'scale(1.01)')}
+        onMouseEnter={e => (!isDetecting && keys.anthropic) && (e.currentTarget.style.transform = 'scale(1.01)')}
         onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
       >
         {isDetecting ? (
           <>
             <span className="animate-spin"><Icons.Loader size={16} /></span>
             Analyzing facade with Claude Vision...
+          </>
+        ) : !keys.anthropic ? (
+          <>
+            <Icons.Settings size={16} />
+            API key required to detect
           </>
         ) : (
           <>
@@ -76,6 +85,39 @@ export default function DetectPanel() {
           </>
         )}
       </button>
+      {!keys.anthropic && (
+        <div style={{
+          padding: '8px 12px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--warning-muted)',
+          border: '1px solid rgba(245,158,11,0.2)',
+          fontSize: 11,
+          color: 'var(--warning)',
+          lineHeight: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}>
+          <span>Add an Anthropic key to enable AI detection.</span>
+          <button
+            onClick={() => actions.setShowSettings(true)}
+            style={{
+              fontSize: 11,
+              color: 'var(--warning)',
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(245,158,11,0.12)',
+              border: '1px solid rgba(245,158,11,0.3)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Settings
+          </button>
+        </div>
+      )}
 
       {error && (
         <div style={{

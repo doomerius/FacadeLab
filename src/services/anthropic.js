@@ -1,36 +1,11 @@
 // Anthropic Claude API service — window detection + prompt generation
+import { DETECTION_PROMPT as DETECTION_PROMPT_BASE, BUILDING_ANALYSIS_PROMPT, RENDER_MODES, RAILING_DESCRIPTIONS as RD, MATERIAL_DESCRIPTIONS as MD, FLOOR_DESCRIPTIONS as FD } from './prompts'
 
-const DETECTION_PROMPT = (width, height) => `You are analyzing a building facade photograph for architectural renovation planning.
-
-Your task: identify every window and door opening visible on the facade.
-
-Return ONLY a valid JSON array. No explanation, no markdown formatting, no preamble, no code fences.
-
-Each object in the array:
-{
-  "id": integer (sequential from 1),
-  "x": integer (left edge, pixels from left of image),
-  "y": integer (top edge, pixels from top of image),
-  "w": integer (width in pixels),
-  "h": integer (height in pixels),
-  "type": "window" | "door",
-  "floor": integer (floor number, 1 = ground level),
-  "shape": "rectangle" | "arch" | "circular" | "other",
-  "confidence": float (0.0-1.0, your certainty about this detection),
-  "occluded": boolean (true if partially blocked by vegetation, another element, etc)
-}
+const DETECTION_PROMPT = (width, height) => `${DETECTION_PROMPT_BASE}
+- Be precise with coordinates — accuracy matters for downstream processing
 
 Image dimensions: ${width}x${height}px
-
-Rules:
-- Include every opening you can identify, including partially visible ones at edges
-- x,y is the top-left corner of the tightest bounding rectangle around the opening
-- For arched windows, use the bounding rectangle of the full arch including the curved portion
-- If you see a window that has been filled in or bricked up, do not include it
-- Estimate floor number from the vertical position and the typical floor height visible
-- Include any skylights or roof lights with floor set to the roof level
-- Set occluded=true if any significant portion of the window is hidden
-- Be precise with coordinates — accuracy matters for downstream processing`
+Return ONLY the JSON array, no markdown fences.`
 
 export async function detectWindows(apiKey, imageDataUrl, width, height) {
   const base64 = imageDataUrl.split(',')[1]
@@ -203,7 +178,7 @@ export async function analyzeBuilding(apiKey, imageDataUrl) {
           },
           {
             type: 'text',
-            text: `Analyze this building facade photograph. In 2-3 sentences, describe: the architectural style and era, primary exterior materials and colors, approximate number of floors, and any notable location context clues (urban/suburban, climate, country). Be concise and specific — this description will be used in an image generation prompt. Return only the description, no preamble.`,
+            text: BUILDING_ANALYSIS_PROMPT,
           },
         ],
       }],
@@ -354,32 +329,25 @@ const LIGHTING_LABELS = {
   night: 'nighttime, artificial lighting, dark sky, illuminated balcony',
 }
 
-export function buildRenderPrompt(annotations, config, imageAnalysis, address) {
+export function buildRenderPrompt(annotations, config, imageAnalysis, address, mode = 'add_balconies') {
   const selectedAnns = annotations.filter(a => a.selected || a.selectedForRender)
+  const modeConfig = RENDER_MODES[mode] || RENDER_MODES.add_balconies
 
-  // Part 1: anchor
-  const anchor = 'photorealistic architectural photograph, 8k, sharp focus, professional real estate photography, natural lighting'
+  // Part 1: anchor from mode
+  const anchor = modeConfig.positivePrefix.replace(/,$/, '')
 
   // Part 2: building description from imageAnalysis
   const buildingDesc = imageAnalysis ? imageAnalysis.trim() : ''
 
-  // Part 3: modification description from config
-  const railingDesc = RAILING_DESCRIPTIONS_V2[config.railingType] || config.railingType
-  const materialDesc = MATERIAL_DESCRIPTIONS_V2[config.material] || config.material
-  const floorDesc = FLOOR_DESCRIPTIONS_V2[config.floorFinish] || config.floorFinish
-  const plantsDesc = config.plants
-    ? PLANT_DENSITY_LABELS[config.plantDensity] || 'light plant decoration'
-    : 'no plants'
-  const lightingDesc = (config.lightingEnabled !== false) ? (LIGHTING_LABELS[config.lighting] || config.lighting) : 'natural daylight'
+  // Part 3: modification description from mode template
+  const floors = selectedAnns.length > 0 ? [...new Set(selectedAnns.map(a => a.floor))].sort() : [1]
+  const modDesc = modeConfig.modificationTemplate(config, selectedAnns.length || 1, floors).replace(/,$/, '')
 
-  const modDesc = [
-    `adding ${config.depth}m deep balconies to ${selectedAnns.length > 0 ? selectedAnns.length + ' window opening' + (selectedAnns.length > 1 ? 's' : '') : 'selected windows'}`,
-    `railing: ${railingDesc}`,
-    `structure: ${materialDesc}`,
-    `floor finish: ${floorDesc}`,
-    plantsDesc,
-    lightingDesc,
-  ].join(', ')
+  // Plants and lighting (for modes that use them)
+  const plantsDesc = (mode === 'add_balconies' || mode === 'replace_balconies') && config.plants
+    ? (PLANT_DENSITY_LABELS[config.plantDensity] || 'light plant decoration')
+    : null
+  const lightingDesc = (config.lightingEnabled !== false) ? (LIGHTING_LABELS[config.lighting] || config.lighting) : null
 
   // Part 4: reference model
   const refDesc = config.referenceDescription ? config.referenceDescription.trim() : ''
@@ -390,14 +358,11 @@ export function buildRenderPrompt(annotations, config, imageAnalysis, address) {
   // Part 6: quality tail
   const qualityTail = 'no distortion, no artifacts, architecturally accurate, structurally plausible, photographic quality'
 
-  const parts = [anchor, buildingDesc, modDesc, refDesc, addrDesc, qualityTail].filter(Boolean)
+  const parts = [anchor, buildingDesc, modDesc, plantsDesc, lightingDesc, refDesc, addrDesc, qualityTail].filter(Boolean)
   const positive = parts.join(', ')
 
-  const negative = 'cartoon, render, CGI look, distorted windows, melting facade, extra floors, missing floors, unrealistic proportions, oversaturated, HDR, anime, painting'
-
-  // Inpainting hint
-  const floors = selectedAnns.length > 0 ? [...new Set(selectedAnns.map(a => a.floor))].sort().join(', ') : 'all selected'
-  const inpaintingHint = `Modify the window opening regions on floors ${floors} to add balconies. Preserve all surrounding facade material and architecture.`
+  const negative = modeConfig.negativePrompt
+  const inpaintingHint = modeConfig.inpaintingGuidance
 
   return { positive, negative, inpaintingHint }
 }

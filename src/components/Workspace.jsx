@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useStore, actions } from '../stores/appStore'
+import { useMobile } from '../utils/useMobile'
 import CanvasView from './CanvasView'
 import ToolBar from './ToolBar'
 import DetectPanel from './DetectPanel'
@@ -7,11 +8,13 @@ import ConfigPanel from './ConfigPanel'
 import RenderPanel from './RenderPanel'
 import ReferencePanel from './ReferencePanel'
 
-export default function Workspace() {
+export default function Workspace({ isMobile: isMobileProp }) {
   const step = useStore(s => s.step)
   const annotations = useStore(s => s.annotations)
   const selectedIds = useStore(s => s.selectedIds)
   const [rightPanelTab, setRightPanelTab] = useState('config')
+  const isMobileHook = useMobile()
+  const isMobile = isMobileProp !== undefined ? isMobileProp : isMobileHook
 
   const selectedCount = selectedIds.size
   const totalCount = annotations.length
@@ -20,15 +23,18 @@ export default function Workspace() {
     <div style={{
       flex: 1,
       display: 'flex',
-      overflow: 'hidden',
+      flexDirection: isMobile ? 'column' : 'row',
+      overflow: isMobile ? 'auto' : 'hidden',
       background: 'var(--bg-primary)',
     }}>
-      {/* Left toolbar */}
-      <ToolBar />
+      {/* Toolbar — left on desktop, horizontal bottom-of-canvas on mobile */}
+      {!isMobile && <ToolBar isMobile={false} />}
 
       {/* Canvas area */}
       <div style={{
-        flex: 1,
+        flex: isMobile ? 'none' : 1,
+        height: isMobile ? '60vh' : undefined,
+        minHeight: isMobile ? '60vh' : undefined,
         position: 'relative',
         overflow: 'hidden',
         background: 'var(--surface-0)',
@@ -68,17 +74,21 @@ export default function Workspace() {
 
         {/* Canvas */}
         <CanvasView />
+        {/* Mobile toolbar at bottom of canvas */}
+        {isMobile && <ToolBar isMobile={true} />}
       </div>
 
       {/* Right panel */}
       <div style={{
-        width: 340,
-        minWidth: 340,
+        width: isMobile ? '100%' : 340,
+        minWidth: isMobile ? undefined : 340,
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg-secondary)',
-        borderLeft: '1px solid var(--border-subtle)',
-        overflow: 'hidden',
+        borderLeft: isMobile ? 'none' : '1px solid var(--border-subtle)',
+        borderTop: isMobile ? '1px solid var(--border-subtle)' : 'none',
+        overflow: isMobile ? 'visible' : 'hidden',
+        flex: isMobile ? 'none' : undefined,
       }}>
         {/* Panel tabs */}
         <div style={{
@@ -111,7 +121,7 @@ export default function Workspace() {
         </div>
 
         {/* Panel content */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '0' }}>
+        <div style={{ flex: 1, overflow: isMobile ? 'visible' : 'auto', padding: '0' }}>
           {step === 'detect' && <DetectPanel />}
           {(step === 'configure' || step === 'render') && rightPanelTab === 'config' && <ConfigPanel />}
           {(step === 'configure' || step === 'render') && rightPanelTab === 'reference' && <ReferencePanel />}

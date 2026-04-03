@@ -9,21 +9,24 @@ const TOOLS = [
   { id: 'delete', icon: Icons.Trash, label: 'Delete', shortcut: 'X' },
 ]
 
-export default function ToolBar() {
+export default function ToolBar({ isMobile = false }) {
   const activeTool = useStore(s => s.activeTool)
   const undoStack = useStore(s => s.undoStack)
 
   return (
     <div style={{
-      width: 52,
-      minWidth: 52,
+      width: isMobile ? '100%' : 52,
+      minWidth: isMobile ? undefined : 52,
+      height: isMobile ? 48 : undefined,
       display: 'flex',
-      flexDirection: 'column',
+      flexDirection: isMobile ? 'row' : 'column',
       alignItems: 'center',
-      padding: '12px 0',
-      gap: 4,
+      justifyContent: isMobile ? 'center' : undefined,
+      padding: isMobile ? '4px 12px' : '12px 0',
+      gap: isMobile ? 8 : 4,
       background: 'var(--bg-secondary)',
-      borderRight: '1px solid var(--border-subtle)',
+      borderRight: isMobile ? 'none' : '1px solid var(--border-subtle)',
+      borderTop: isMobile ? '1px solid var(--border-subtle)' : 'none',
     }}>
       {TOOLS.map(tool => {
         const active = activeTool === tool.id
@@ -34,8 +37,8 @@ export default function ToolBar() {
             onClick={() => actions.setActiveTool(tool.id)}
             title={`${tool.label} (${tool.shortcut})`}
             style={{
-              width: 36,
-              height: 36,
+              width: isMobile ? 44 : 36,
+              height: isMobile ? 44 : 36,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -64,7 +67,7 @@ export default function ToolBar() {
         )
       })}
 
-      <div style={{ width: 24, height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
+      <div style={isMobile ? { width: 1, height: 24, background: 'var(--border-subtle)', margin: '0 4px' } : { width: 24, height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
 
       {/* Undo */}
       <button
@@ -72,8 +75,8 @@ export default function ToolBar() {
         disabled={undoStack.length === 0}
         title="Undo (Ctrl+Z)"
         style={{
-          width: 36,
-          height: 36,
+          width: isMobile ? 44 : 36,
+          height: isMobile ? 44 : 36,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -91,8 +94,8 @@ export default function ToolBar() {
         onClick={() => actions.selectAll()}
         title="Select All (Ctrl+A)"
         style={{
-          width: 36,
-          height: 36,
+          width: isMobile ? 44 : 36,
+          height: isMobile ? 44 : 36,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',

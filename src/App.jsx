@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback } from 'react'
 import { store, useStore, actions } from './stores/appStore'
 import { loadImageFromFile } from './utils/imageUtils'
+import { useMobile } from './utils/useMobile'
 import Header from './components/Header'
 import SetupPanel from './components/SetupPanel'
 import SourcePanel from './components/SourcePanel'
@@ -13,13 +14,19 @@ export default function App() {
   const showSettings = useStore(s => s.showSettings)
   const showExport = useStore(s => s.showExport)
   const sourceImage = useStore(s => s.sourceImage)
+  const keys = useStore(s => s.keys)
+  const isMobile = useMobile()
+  const hasDemoMode = !keys.anthropic && !keys.fal
 
-  // Load saved keys on mount
+  // Load saved keys on mount — go straight to source (free-tier mode)
   useEffect(() => {
     actions.loadKeys()
-    const saved = store.getState().keys
-    if (saved.anthropic) {
-      actions.setStep(sourceImage ? 'detect' : 'source')
+    // Always start at source step; setup is optional
+    const s = store.getState()
+    if (s.sourceImage) {
+      actions.setStep('detect')
+    } else {
+      actions.setStep('source')
     }
   }, [])
 
@@ -83,10 +90,41 @@ export default function App() {
       overflow: 'hidden',
     }}>
       <Header />
+      {hasDemoMode && (
+        <div style={{
+          background: 'var(--surface-2)',
+          borderBottom: '1px solid var(--border-subtle)',
+          padding: '6px 16px',
+          fontSize: 11,
+          color: 'var(--text-tertiary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}>
+          <span>Demo mode — image upload, canvas tools, and annotation work without API keys.</span>
+          <button
+            onClick={() => actions.setShowSettings(true)}
+            style={{
+              fontSize: 11,
+              color: 'var(--accent)',
+              fontWeight: 500,
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--accent-muted)',
+              border: '1px solid var(--border-focus)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Add API Keys
+          </button>
+        </div>
+      )}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {step === 'setup' && <SetupPanel />}
+        {step === 'setup' && <SourcePanel />}
         {step === 'source' && <SourcePanel />}
-        {(step === 'detect' || step === 'configure' || step === 'render') && <Workspace />}
+        {(step === 'detect' || step === 'configure' || step === 'render') && <Workspace isMobile={isMobile} />}
       </div>
       {showSettings && <SettingsModal />}
       {showExport && <ExportModal />}

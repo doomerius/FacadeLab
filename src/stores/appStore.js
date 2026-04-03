@@ -4,7 +4,10 @@ import { useState, useCallback, useRef } from 'react'
 const createStore = () => {
   let state = {
     // Pipeline step: 'setup' | 'source' | 'detect' | 'configure' | 'render'
-    step: 'setup',
+    step: 'source',
+
+    // Operation mode
+    operationMode: 'add_balconies', // 'add_balconies' | 'replace_balconies' | 'remove_balconies' | 'enlarge_windows' | 'add_cladding'
 
     // API Keys
     keys: {
@@ -60,7 +63,7 @@ const createStore = () => {
     // Sprint 3 additions
     buildingAnalysis: null,   // Claude building description
     generatedPrompt: null,    // assembled positive/negative prompt
-    renderTier: 'tier3',      // 'prompt' | 'tier2' | 'tier3'
+    renderTier: 'tier2b',     // 'prompt' | 'tier2b' | 'tier2' | 'tier3'
     numVariations: 1,         // 1-4
 
     // UI state
@@ -134,6 +137,7 @@ export const useGeneratedPrompt = () => useStore(s => s.generatedPrompt)
 export const useRenderTier = () => useStore(s => s.renderTier)
 export const useNumVariations = () => useStore(s => s.numVariations)
 export const useSelectedResult = () => useStore(s => s.selectedResult)
+export const useOperationMode = () => useStore(s => s.operationMode)
 
 // Actions
 export const actions = {
@@ -252,6 +256,9 @@ export const actions = {
   setRenderResults: (results) => store.setState({ renderResults: results }),
   setIsRendering: (v) => store.setState({ isRendering: v }),
   setIsDetecting: (v) => store.setState({ isDetecting: v }),
+
+  // Operation mode
+  setOperationMode: (mode) => store.setState({ operationMode: mode }),
 
   // Sprint 3 actions
   setBuildingAnalysis: (text) => store.setState({ buildingAnalysis: text }),

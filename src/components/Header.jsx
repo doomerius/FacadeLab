@@ -1,5 +1,6 @@
 import React from 'react'
 import { useStore, actions } from '../stores/appStore'
+import { useMobile } from '../utils/useMobile'
 import Icons from '../utils/icons'
 
 const STEPS = [
@@ -15,13 +16,14 @@ export default function Header() {
   const projectName = useStore(s => s.projectName)
   const sourceImage = useStore(s => s.sourceImage)
   const keys = useStore(s => s.keys)
+  const isMobile = useMobile()
 
   const stepIdx = STEPS.findIndex(s => s.id === step)
 
   const canNavigate = (targetStep) => {
     const targetIdx = STEPS.findIndex(s => s.id === targetStep)
     if (targetStep === 'setup') return true
-    if (targetStep === 'source') return !!keys.anthropic
+    if (targetStep === 'source') return true  // free-tier: always accessible
     if (targetStep === 'detect') return !!sourceImage
     if (targetStep === 'configure') return !!sourceImage
     if (targetStep === 'render') return !!sourceImage
@@ -30,11 +32,11 @@ export default function Header() {
 
   return (
     <header style={{
-      height: 56,
-      minHeight: 56,
+      height: isMobile ? 48 : 56,
+      minHeight: isMobile ? 48 : 56,
       display: 'flex',
       alignItems: 'center',
-      padding: '0 20px',
+      padding: isMobile ? '0 12px' : '0 20px',
       background: 'var(--surface-0)',
       borderBottom: '1px solid var(--border-subtle)',
       gap: 0,
@@ -82,21 +84,25 @@ export default function Header() {
         </span>
       </div>
 
-      {/* Pipeline steps */}
+      {/* Pipeline steps — hide on mobile except active step */}
       <nav style={{
         display: 'flex',
         alignItems: 'center',
         gap: 2,
         flex: 1,
+        overflow: 'hidden',
       }}>
         {STEPS.map((s, i) => {
           const isActive = s.id === step
           const isPast = i < stepIdx
           const canNav = canNavigate(s.id)
 
+          // On mobile, only show active step and adjacent navigable steps
+          const showOnMobile = isMobile ? (isActive || isPast || i === stepIdx + 1) : true
+
           return (
             <React.Fragment key={s.id}>
-              {i > 0 && (
+              {i > 0 && !isMobile && (
                 <div style={{
                   width: 20,
                   height: 1,
@@ -105,14 +111,14 @@ export default function Header() {
                   transition: 'background var(--duration-normal) var(--ease-out)',
                 }} />
               )}
-              <button
+              {showOnMobile && <button
                 onClick={() => canNav && actions.setStep(s.id)}
                 disabled={!canNav}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 12px',
+                  gap: isMobile ? 4 : 8,
+                  padding: isMobile ? '4px 8px' : '6px 12px',
                   borderRadius: 'var(--radius-md)',
                   background: isActive ? 'var(--accent-muted)' : 'transparent',
                   border: isActive ? '1px solid var(--border-focus)' : '1px solid transparent',
@@ -138,15 +144,15 @@ export default function Header() {
                 }}>
                   {s.label}
                 </span>
-              </button>
+              </button>}
             </React.Fragment>
           )
         })}
       </nav>
 
-      {/* Right actions */}
+      {/* Right actions — condensed on mobile */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <HeaderButton icon={<Icons.Save size={15} />} label="Save" onClick={() => {
+        {!isMobile && <HeaderButton icon={<Icons.Save size={15} />} label="Save" onClick={() => {
           const json = actions.exportProject()
           const blob = new Blob([json], { type: 'application/json' })
           const url = URL.createObjectURL(blob)
@@ -155,8 +161,8 @@ export default function Header() {
           a.download = `${projectName.replace(/\s+/g, '-').toLowerCase()}.facadelab.json`
           a.click()
           URL.revokeObjectURL(url)
-        }} />
-        <HeaderButton icon={<Icons.FolderOpen size={15} />} label="Open" onClick={() => {
+        }} />}
+        {!isMobile && <HeaderButton icon={<Icons.FolderOpen size={15} />} label="Open" onClick={() => {
           const input = document.createElement('input')
           input.type = 'file'
           input.accept = '.json'
@@ -168,9 +174,10 @@ export default function Header() {
             reader.readAsText(file)
           }
           input.click()
-        }} />
-        <div style={{ width: 1, height: 20, background: 'var(--border-subtle)', margin: '0 8px' }} />
-        <HeaderButton icon={<Icons.Download size={15} />} label="Export" onClick={() => actions.setShowExport(true)} />
+        }} />}
+        {!isMobile && <div style={{ width: 1, height: 20, background: 'var(--border-subtle)', margin: '0 8px' }} />}
+        {!isMobile && <HeaderButton icon={<Icons.Download size={15} />} label="Export" onClick={() => actions.setShowExport(true)} />}
+        {/* Settings always visible */}
         <HeaderButton icon={<Icons.Settings size={15} />} onClick={() => actions.setShowSettings(true)} />
       </div>
     </header>

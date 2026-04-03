@@ -72,6 +72,25 @@ export async function upscaleImage(apiKey, imageBase64) {
   return data.image?.url || data.images?.[0]?.url || null
 }
 
+// Tier 2b: Nano Banana 2 (Gemini Flash Image) — better for architecture
+// endpoint: fal-ai/nano-banana-2
+// Up to 14 reference images, natural language prompts, spatial reasoning
+export async function generateImageNanoBanana(apiKey, prompt, imageBase64 = null, numImages = 1) {
+  const body = {
+    prompt,
+    num_images: numImages,
+    image_size: 'landscape_4_3',  // good default for facade photos
+  }
+  // If we have a reference image, pass it (up to 14 supported)
+  if (imageBase64) {
+    body.image_url = toDataUri(imageBase64)
+  }
+  const data = await falPost(apiKey, 'fal-ai/nano-banana-2', body)
+  if (data.images) return data.images.map(img => img.url || img)
+  if (data.image?.url) return [data.image.url]
+  return []
+}
+
 export async function validateKey(apiKey) {
   try {
     // A minimal request — will fail with 422 (bad params) but not 401/403 if key is valid

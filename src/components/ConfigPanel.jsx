@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { useStore, actions } from '../stores/appStore'
+import { useStore, useOperationMode, actions } from '../stores/appStore'
+import { RENDER_MODES } from '../services/prompts'
 import Icons from '../utils/icons'
 
 const RAILING_TYPES = [
@@ -44,13 +45,74 @@ const LIGHTING = [
   { id: 'night', label: 'Night' },
 ]
 
+const MODE_KEYS = Object.keys(RENDER_MODES)
+
 export default function ConfigPanel() {
   const config = useStore(s => s.balconyConfig)
   const selectedIds = useStore(s => s.selectedIds)
+  const operationMode = useOperationMode()
   const selectedCount = selectedIds.size
+
+  const showBalconyConfig = operationMode === 'add_balconies' || operationMode === 'replace_balconies'
+  const showWindowConfig = operationMode === 'enlarge_windows'
+  // remove_balconies and add_cladding show no special config
 
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Operation Mode Selector */}
+      <div style={{
+        padding: '10px 14px',
+        borderRadius: 'var(--radius-md)',
+        background: 'var(--surface-1)',
+        border: '1px solid var(--border-subtle)',
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+          Operation Mode
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {MODE_KEYS.map(key => {
+            const m = RENDER_MODES[key]
+            const isActive = operationMode === key
+            return (
+              <button
+                key={key}
+                onClick={() => actions.setOperationMode(key)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 10px',
+                  borderRadius: 'var(--radius-md)',
+                  background: isActive ? 'var(--accent-muted)' : 'transparent',
+                  border: `1px solid ${isActive ? 'var(--border-focus)' : 'transparent'}`,
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'all var(--duration-fast) var(--ease-out)',
+                }}
+                onMouseEnter={e => !isActive && (e.currentTarget.style.background = 'var(--bg-hover)')}
+                onMouseLeave={e => !isActive && (e.currentTarget.style.background = 'transparent')}
+              >
+                <div style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: isActive ? 'var(--accent)' : 'var(--text-tertiary)',
+                  flexShrink: 0,
+                  transition: 'background var(--duration-fast)',
+                }} />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: isActive ? 500 : 400, color: isActive ? 'var(--accent)' : 'var(--text-primary)' }}>
+                    {m.label}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{m.description}</div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Selection status */}
       <div style={{
         padding: '12px 14px',
@@ -79,8 +141,8 @@ export default function ConfigPanel() {
         )}
       </div>
 
-      {/* Depth slider */}
-      <Section title="Balcony Depth">
+      {/* Depth slider — only for balcony modes */}
+      {showBalconyConfig && <Section title="Balcony Depth">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <input
             type="range"
@@ -120,10 +182,10 @@ export default function ConfigPanel() {
           <span>Juliette (0.6m)</span>
           <span>Terrace (2.4m)</span>
         </div>
-      </Section>
+      </Section>}
 
-      {/* Railing Type */}
-      <Section title="Railing Type">
+      {/* Railing Type — only for balcony modes */}
+      {showBalconyConfig && <Section title="Railing Type">
         <select
           value={config.railingType}
           onChange={(e) => actions.setBalconyConfig({ railingType: e.target.value })}
@@ -156,10 +218,10 @@ export default function ConfigPanel() {
             {RAILING_TYPES.find(r => r.id === config.railingType)?.desc}
           </div>
         )}
-      </Section>
+      </Section>}
 
-      {/* Structure Material */}
-      <Section title="Structure Material">
+      {/* Structure Material — only for balcony modes */}
+      {showBalconyConfig && <Section title="Structure Material">
         <select
           value={config.material}
           onChange={(e) => actions.setBalconyConfig({ material: e.target.value })}
@@ -178,10 +240,10 @@ export default function ConfigPanel() {
             <option key={m.id} value={m.id}>{m.label}</option>
           ))}
         </select>
-      </Section>
+      </Section>}
 
-      {/* Floor Finish */}
-      <Section title="Floor Finish">
+      {/* Floor Finish — only for balcony modes */}
+      {showBalconyConfig && <Section title="Floor Finish">
         <select
           value={config.floorFinish}
           onChange={(e) => actions.setBalconyConfig({ floorFinish: e.target.value })}
@@ -200,10 +262,41 @@ export default function ConfigPanel() {
             <option key={f.id} value={f.id}>{f.label}</option>
           ))}
         </select>
-      </Section>
+      </Section>}
 
-      {/* Plants */}
-      <Section title="Plants & Greenery">
+      {/* Enlarge windows config */}
+      {showWindowConfig && (
+        <Section title="Window Scale">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <input
+              type="range"
+              min="1.2"
+              max="2.5"
+              step="0.1"
+              value={config.windowScale || 1.5}
+              onChange={(e) => actions.setBalconyConfig({ windowScale: parseFloat(e.target.value) })}
+              style={{
+                flex: 1,
+                height: 4,
+                appearance: 'none',
+                background: `linear-gradient(to right, var(--accent) ${((((config.windowScale || 1.5) - 1.2) / 1.3)) * 100}%, var(--surface-3) ${((((config.windowScale || 1.5) - 1.2) / 1.3)) * 100}%)`,
+                borderRadius: 'var(--radius-full)',
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 36 }}>
+              {(config.windowScale || 1.5).toFixed(1)}x
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
+            <span>Small (1.2x)</span><span>Large (2.5x)</span>
+          </div>
+        </Section>
+      )}
+
+      {/* Plants — only for balcony modes */}
+      {showBalconyConfig && <Section title="Plants & Greenery">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: config.plants ? 10 : 0 }}>
           <ToggleSwitch
             value={config.plants}
@@ -225,7 +318,7 @@ export default function ConfigPanel() {
             ))}
           </div>
         )}
-      </Section>
+      </Section>}
 
       {/* Lighting */}
       <Section title="Lighting">

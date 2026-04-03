@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react'
-import { useStore, actions, store } from '../stores/appStore'
+import { useStore, useOperationMode, actions, store } from '../stores/appStore'
 import { analyzeBuilding, buildRenderPrompt } from '../services/anthropic'
-import { generateImage, inpaintImage, upscaleImage } from '../services/falai'
+import { generateImage, generateImageNanoBanana, inpaintImage, upscaleImage } from '../services/falai'
 import { generateInpaintingMask } from '../utils/imageUtils'
 import Icons from '../utils/icons'
 
@@ -21,6 +21,7 @@ export default function RenderPanel() {
   const numVariations = useStore(s => s.numVariations)
   const renderResults = useStore(s => s.renderResults)
   const selectedResult = useStore(s => s.selectedResult)
+  const operationMode = useOperationMode()
 
   // Local UI state
   const [analysisText, setAnalysisText] = useState(buildingAnalysis || '')
@@ -70,7 +71,7 @@ export default function RenderPanel() {
       const markedAnns = getMarkedAnnotations()
       const activeRef = referenceModels.find(m => m.active)
       const configWithRef = { ...config, referenceDescription: activeRef?.description }
-      const pd = buildRenderPrompt(markedAnns, configWithRef, analysisText, address)
+      const pd = buildRenderPrompt(markedAnns, configWithRef, analysisText, address, operationMode)
       setPositivePrompt(pd.positive)
       setNegativePrompt(pd.negative)
       actions.setGeneratedPrompt(pd)
@@ -98,6 +99,26 @@ export default function RenderPanel() {
         setLoadingStep('')
         actions.setIsRendering(false)
         return
+      }
+
+      if (renderTier === 'tier2b') {
+        setLoadingStep(`Generating render with Nano Banana 2 (this takes ~20s)...`)
+        const urls = await generateImageNanoBanana(
+          keys.fal,
+          positivePrompt,
+          sourceImage?.dataUrl,
+          numVariations
+        )
+        const results = urls.map((url, i) => ({
+          imageUrl: url,
+          prompt: positivePrompt,
+          seed: Math.floor(Math.random() * 999999),
+          timestamp: Date.now(),
+          index: i,
+          tier: 'nano-banana-2',
+        }))
+        actions.setRenderResults(results)
+        actions.setSelectedResult(results[0] || null)
       }
 
       if (renderTier === 'tier2') {
@@ -208,12 +229,15 @@ export default function RenderPanel() {
 
   const tierOptions = [
     { id: 'prompt', label: 'Prompt Only', desc: 'No generation' },
-    { id: 'tier2', label: 'Tier 2', desc: 'img2img' },
-    { id: 'tier3', label: 'Tier 3', desc: 'Inpainting' },
+    { id: 'tier2b', label: 'Nano Banana 2', desc: 'Recommended ★' },
+    { id: 'tier2', label: 'Flux Pro', desc: 'img2img' },
+    { id: 'tier3', label: 'Inpainting', desc: 'Masked regions' },
   ]
 
   const canGenerate = renderTier === 'prompt'
     ? !!positivePrompt
+    : renderTier === 'tier2b'
+    ? hasFalKey && !!positivePrompt  // Nano Banana doesn't need selected windows
     : hasFalKey && !!positivePrompt && selectedCount > 0
 
   return (
@@ -343,6 +367,38 @@ export default function RenderPanel() {
       </Section>
 
       {/* Step 4: Generate */}
+      {!hasFalKey && renderTier !== 'prompt' && (
+        <div style={{
+          padding: '8px 12px',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--warning-muted)',
+          border: '1px solid rgba(245,158,11,0.2)',
+          fontSize: 11,
+          color: 'var(--warning)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}>
+          <span>fal.ai API key required to generate images.</span>
+          <button
+            onClick={() => actions.setShowSettings(true)}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: 'var(--warning)',
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(245,158,11,0.12)',
+              border: '1px solid rgba(245,158,11,0.3)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Settings
+          </button>
+        </div>
+      )}
       <button
         onClick={handleGenerate}
         disabled={isRendering || !canGenerate}
