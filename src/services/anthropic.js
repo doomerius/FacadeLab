@@ -45,7 +45,7 @@ export async function detectWindows(apiKey, imageDataUrl, width, height) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-opus-4-5',
+      model: 'claude-haiku-4-5',
       max_tokens: 4096,
       messages: [{
         role: 'user',
@@ -124,7 +124,7 @@ Selected windows for balcony addition: ${selectedAnns.length} windows on floors 
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-opus-4-5',
+      model: 'claude-haiku-4-5',
       max_tokens: 2048,
       messages: [{
         role: 'user',
@@ -179,6 +179,45 @@ Return ONLY the JSON object, no explanation, no markdown fences.`,
   return JSON.parse(jsonStr)
 }
 
+export async function analyzeBuilding(apiKey, imageDataUrl) {
+  const base64 = imageDataUrl.split(',')[1]
+  const mediaType = imageDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType, data: base64 },
+          },
+          {
+            type: 'text',
+            text: `Analyze this building facade photograph. In 2-3 sentences, describe: the architectural style and era, primary exterior materials and colors, approximate number of floors, and any notable location context clues (urban/suburban, climate, country). Be concise and specific — this description will be used in an image generation prompt. Return only the description, no preamble.`,
+          },
+        ],
+      }],
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.error?.message || `API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return data.content?.[0]?.text || ''
+}
+
 export async function analyzeReferenceModel(apiKey, imageDataUrl) {
   const base64 = imageDataUrl.split(',')[1]
   const mediaType = imageDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
@@ -192,7 +231,7 @@ export async function analyzeReferenceModel(apiKey, imageDataUrl) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-opus-4-5',
+      model: 'claude-haiku-4-5',
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -226,7 +265,7 @@ export async function validateKey(apiKey) {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-5',
+        model: 'claude-haiku-4-5',
         max_tokens: 1,
         messages: [{ role: 'user', content: 'hi' }],
       }),

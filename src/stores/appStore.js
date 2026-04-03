@@ -52,9 +52,16 @@ const createStore = () => {
 
     // Render state
     renderPrompt: '',
-    renderResults: [],   // [{ dataUrl, seed, selected }]
+    renderResults: [],   // [{ url, prompt, seed, timestamp }]
+    selectedResult: null,
     isRendering: false,
     isDetecting: false,
+
+    // Sprint 3 additions
+    buildingAnalysis: null,   // Claude building description
+    generatedPrompt: null,    // assembled positive/negative prompt
+    renderTier: 'tier3',      // 'prompt' | 'tier2' | 'tier3'
+    numVariations: 1,         // 1-4
 
     // UI state
     showSettings: false,
@@ -122,6 +129,11 @@ export const useIsDetecting = () => useStore(s => s.isDetecting)
 export const useIsRendering = () => useStore(s => s.isRendering)
 export const useRenderPrompt = () => useStore(s => s.renderPrompt)
 export const useRenderResults = () => useStore(s => s.renderResults)
+export const useBuildingAnalysis = () => useStore(s => s.buildingAnalysis)
+export const useGeneratedPrompt = () => useStore(s => s.generatedPrompt)
+export const useRenderTier = () => useStore(s => s.renderTier)
+export const useNumVariations = () => useStore(s => s.numVariations)
+export const useSelectedResult = () => useStore(s => s.selectedResult)
 
 // Actions
 export const actions = {
@@ -240,6 +252,17 @@ export const actions = {
   setRenderResults: (results) => store.setState({ renderResults: results }),
   setIsRendering: (v) => store.setState({ isRendering: v }),
   setIsDetecting: (v) => store.setState({ isDetecting: v }),
+
+  // Sprint 3 actions
+  setBuildingAnalysis: (text) => store.setState({ buildingAnalysis: text }),
+  setGeneratedPrompt: (p) => store.setState({ generatedPrompt: p }),
+  setRenderTier: (tier) => store.setState({ renderTier: tier }),
+  setNumVariations: (n) => store.setState({ numVariations: n }),
+  setSelectedResult: (result) => store.setState({ selectedResult: result }),
+  addRenderResult: (result) => {
+    const s = store.getState()
+    store.setState({ renderResults: [...s.renderResults, result] })
+  },
 
   setShowSettings: (v) => store.setState({ showSettings: v }),
   setShowExport: (v) => store.setState({ showExport: v }),
