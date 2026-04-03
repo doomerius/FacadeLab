@@ -358,6 +358,98 @@ const SOFFIT_DESCRIPTIONS = {
 
 export { RAILING_DESCRIPTIONS, MATERIAL_DESCRIPTIONS, FLOOR_DESCRIPTIONS, SOFFIT_DESCRIPTIONS }
 
+// ─────────────────────────────────────────────────────────────
+// Self-hosted Grounded-SAM2 detection service
+// Returns annotations with pixel-accurate masks from GroundingDINO + SAM2
+// ─────────────────────────────────────────────────────────────
+
+export async function checkCVServiceAvailable(cvServiceUrl = 'https://cv.palkia.io') {
+  try {
+    const res = await fetch(`${cvServiceUrl}/health`, { signal: AbortSignal.timeout(5000) })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function detectWindowsSelfHosted(imageDataUrl, cvServiceUrl = 'https://cv.palkia.io') {
+  const response = await fetch(`${cvServiceUrl}/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      image_b64: imageDataUrl,
+      text_prompt: 'window . door',
+      box_threshold: 0.30,
+      text_threshold: 0.25,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`CV service error: ${response.status}`)
+  }
+
+  const data = await response.json()
+
+  // Assign floor numbers based on y-position clustering
+  const floorAssigned = assignFloors(data.boxes, data.image_height)
+
+  // Merge masks from SAM2
+  return floorAssigned.map((box, i) => {
+    const maskData = data.masks[i]
+    return {
+      id: box.id,
+      x: box.x, y: box.y, w: box.w, h: box.h,
+      type: box.type,
+      floor: box.floor,
+      confidence: box.confidence,
+      hasSAMMask: !!maskData?.mask_b64,
+      maskB64: maskData?.mask_b64 || null,  // local base64, not URL
+      maskUrl: null,
+      selected: false,
+      has_balcony: false,
+      group_id: null,
+      shape: 'rectangle',
+      occluded: false,
+      window_style: 'unknown',
+    }
+  })
+}
+
+// Cluster windows into floors by y-position
+function assignFloors(boxes, imageHeight) {
+  if (boxes.length === 0) return []
+
+  // Sort by vertical center
+  const withCenters = boxes.map(b => ({ ...b, cy: b.y + b.h / 2 }))
+  withCenters.sort((a, b) => a.cy - b.cy)
+
+  // Cluster by vertical proximity
+  const medianH = [...withCenters].map(b => b.h).sort((a, b) => a - b)[Math.floor(withCenters.length / 2)]
+  const clusterThreshold = Math.max(medianH * 0.5, 20)  // at least 20px gap
+
+  const clusters = []
+  let currentCluster = [withCenters[0]]
+
+  for (let i = 1; i < withCenters.length; i++) {
+    const prev = withCenters[i - 1]
+    const curr = withCenters[i]
+    if (curr.cy - prev.cy < clusterThreshold) {
+      currentCluster.push(curr)
+    } else {
+      clusters.push(currentCluster)
+      currentCluster = [curr]
+    }
+  }
+  clusters.push(currentCluster)
+
+  // Assign floor numbers bottom-up (largest y = floor 1)
+  const totalFloors = clusters.length
+  return clusters.flatMap((cluster, clusterIdx) => {
+    const floorNum = totalFloors - clusterIdx  // invert: top cluster = highest floor
+    return cluster.map(b => ({ ...b, floor: floorNum }))
+  })
+}
+
 // Sprint 2: buildRenderPrompt — pure local assembly, no API call needed
 const RAILING_DESCRIPTIONS_V2 = {
   clear_glass: 'frameless tempered glass balustrade with minimal stainless steel top rail and point fixings',

@@ -78,10 +78,12 @@ function loadImageEl(url) {
 
 function drawDilatedRect(ctx, ann, dilation, imageWidth, imageHeight) {
   ctx.fillStyle = 'white'
+  // Dilate: left/right by dilation, up by 50% dilation, down by 2x dilation
+  // (balcony extends below window, so we need more room downward)
   const x = Math.max(0, ann.x - dilation)
-  const y = Math.max(0, ann.y - dilation)
+  const y = Math.max(0, ann.y - Math.round(dilation * 0.5))
   const w = Math.min(imageWidth - x, ann.w + dilation * 2)
-  const h = Math.min(imageHeight - y, ann.h + dilation * 2 + Math.round(ann.h * 0.5))
+  const h = Math.min(imageHeight - y, ann.h + Math.round(dilation * 0.5) + dilation * 2)
   ctx.fillRect(x, y, w, h)
 }
 
@@ -108,15 +110,24 @@ export async function generateInpaintingMask(annotations, selectedIds, imageWidt
   const selected = annotations.filter(a => selectedIds.has(a.id))
 
   for (const ann of selected) {
-    if (ann.maskUrl && ann.hasSAMMask) {
-      // Fetch and composite the SAM2 mask (white pixels = masked region)
+    if (ann.maskB64) {
+      // Local base64 mask from self-hosted cv-service (GroundingDINO + SAM2)
+      try {
+        const img = await loadImageEl(`data:image/png;base64,${ann.maskB64}`)
+        ctx.globalCompositeOperation = 'screen'
+        ctx.drawImage(img, 0, 0, imageWidth, imageHeight)
+        ctx.globalCompositeOperation = 'source-over'
+      } catch {
+        drawDilatedRect(ctx, ann, dilationPx, imageWidth, imageHeight)
+      }
+    } else if (ann.maskUrl && ann.hasSAMMask) {
+      // Remote URL mask from fal.ai SAM2
       try {
         const img = await loadImageEl(ann.maskUrl)
         ctx.globalCompositeOperation = 'screen'
         ctx.drawImage(img, 0, 0, imageWidth, imageHeight)
         ctx.globalCompositeOperation = 'source-over'
       } catch {
-        // Fall back to rectangle
         drawDilatedRect(ctx, ann, dilationPx, imageWidth, imageHeight)
       }
     } else {
