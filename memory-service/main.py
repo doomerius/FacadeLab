@@ -23,10 +23,9 @@ app.add_middleware(
 
 API_KEY = os.environ.get("MEMORY_API_KEY", "palkia-memory-2026")
 DB_PATH = "/data/memory.db"
-MODEL_NAME = "all-MiniLM-L6-v2"
 
-print(f"Loading embedding model {MODEL_NAME}...")
-embedder = SentenceTransformer(MODEL_NAME)
+print("Loading embedding model...")
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
 print("Model loaded.")
 
 def get_db():
@@ -64,13 +63,13 @@ def verify_key(x_api_key: str = Header(...)):
 
 class MemoryIn(BaseModel):
     content: str
-    type: str = "insight"  # lesson | decision | person | project | insight | mistake | opinion
+    type: str = "insight"
     tags: List[str] = []
     entities: List[str] = []
     visibility: str = "private"
-    importance: int = 3  # 1-5
+    importance: int = 3
     source: Optional[str] = None
-    date: Optional[str] = None  # ISO date string, defaults to today
+    date: Optional[str] = None
 
 class MemoryOut(BaseModel):
     id: int
@@ -114,7 +113,6 @@ def ingest(memory: MemoryIn, _: str = Depends(verify_key)):
     embedding = embedder.encode(memory.content)
     embedding_bytes = embedding.astype(np.float32).tobytes()
     date = memory.date or datetime.utcnow().strftime("%Y-%m-%d")
-    
     conn = get_db()
     cur = conn.execute(
         """INSERT INTO memories (content, type, tags, entities, visibility, importance, source, date, embedding, created_at)
@@ -130,7 +128,6 @@ def ingest(memory: MemoryIn, _: str = Depends(verify_key)):
 @app.post("/search", response_model=List[SearchResult])
 def search(req: SearchRequest, _: str = Depends(verify_key)):
     query_embedding = embedder.encode(req.query).astype(np.float32)
-    
     conn = get_db()
     where = ["importance >= ?"]
     params = [req.min_importance]
@@ -140,44 +137,26 @@ def search(req: SearchRequest, _: str = Depends(verify_key)):
     if req.visibility_filter:
         where.append("visibility = ?")
         params.append(req.visibility_filter)
-    
-    rows = conn.execute(
-        f"SELECT * FROM memories WHERE {' AND '.join(where)}",
-        params
-    ).fetchall()
+    rows = conn.execute(f"SELECT * FROM memories WHERE {' AND '.join(where)}", params).fetchall()
     conn.close()
-    
     results = []
     for row in rows:
         emb = np.frombuffer(row["embedding"], dtype=np.float32)
         score = float(np.dot(query_embedding, emb) / (np.linalg.norm(query_embedding) * np.linalg.norm(emb) + 1e-8))
         results.append((score, row))
-    
     results.sort(key=lambda x: x[0], reverse=True)
     return [SearchResult(memory=row_to_out(r), score=round(s, 4)) for s, r in results[:req.limit]]
 
 @app.get("/memories", response_model=List[MemoryOut])
-def list_memories(
-    visibility: Optional[str] = None,
-    type: Optional[str] = None,
-    limit: int = 50,
-    _: str = Depends(verify_key)
-):
+def list_memories(visibility: Optional[str] = None, type: Optional[str] = None, limit: int = 50, _: str = Depends(verify_key)):
     conn = get_db()
-    where = []
-    params = []
+    where, params = [], []
     if visibility:
-        where.append("visibility = ?")
-        params.append(visibility)
+        where.append("visibility = ?"); params.append(visibility)
     if type:
-        where.append("type = ?")
-        params.append(type)
-    
+        where.append("type = ?"); params.append(type)
     where_clause = f"WHERE {' AND '.join(where)}" if where else ""
-    rows = conn.execute(
-        f"SELECT * FROM memories {where_clause} ORDER BY created_at DESC LIMIT ?",
-        params + [limit]
-    ).fetchall()
+    rows = conn.execute(f"SELECT * FROM memories {where_clause} ORDER BY created_at DESC LIMIT ?", params + [limit]).fetchall()
     conn.close()
     return [row_to_out(r) for r in rows]
 
@@ -191,16 +170,14 @@ def delete_memory(memory_id: int, _: str = Depends(verify_key)):
 
 @app.patch("/memories/{memory_id}")
 def update_memory(memory_id: int, updates: dict, _: str = Depends(verify_key)):
-    allowed = {"content", "type", "tags", "entities", "visibility", "importance"}
     conn = get_db()
     for field, value in updates.items():
-        if field not in allowed:
+        if field not in {"content", "type", "tags", "entities", "visibility", "importance"}:
             continue
         if field in ("tags", "entities"):
             value = json.dumps(value)
         conn.execute(f"UPDATE memories SET {field} = ? WHERE id = ?", (value, memory_id))
         if field == "content":
-            # Re-embed
             new_emb = embedder.encode(value).astype(np.float32).tobytes()
             conn.execute("UPDATE memories SET embedding = ? WHERE id = ?", (new_emb, memory_id))
     conn.commit()
@@ -209,21 +186,15 @@ def update_memory(memory_id: int, updates: dict, _: str = Depends(verify_key)):
 
 @app.get("/patterns")
 def patterns(_: str = Depends(verify_key)):
-    """Surface recurring themes and type counts"""
     conn = get_db()
-    type_counts = conn.execute(
-        "SELECT type, COUNT(*) as count FROM memories GROUP BY type ORDER BY count DESC"
-    ).fetchall()
+    type_counts = conn.execute("SELECT type, COUNT(*) as count FROM memories GROUP BY type ORDER BY count DESC").fetchall()
     tag_rows = conn.execute("SELECT tags FROM memories").fetchall()
     conn.close()
-    
     tag_counts = {}
     for row in tag_rows:
         for tag in json.loads(row["tags"]):
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
-    
     top_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:20]
-    
     return {
         "by_type": {r["type"]: r["count"] for r in type_counts},
         "top_tags": dict(top_tags),
@@ -232,19 +203,16 @@ def patterns(_: str = Depends(verify_key)):
 
 @app.get("/public", response_model=List[MemoryOut])
 def public_memories(type: Optional[str] = None, limit: int = 100):
-    """No auth — returns only public memories for the web page"""
     conn = get_db()
     where = ["visibility = 'public'"]
     params = []
     if type:
-        where.append("type = ?")
-        params.append(type)
+        where.append("type = ?"); params.append(type)
     rows = conn.execute(
         f"SELECT * FROM memories WHERE {' AND '.join(where)} ORDER BY importance DESC, created_at DESC LIMIT ?",
         params + [limit]
     ).fetchall()
     conn.close()
-    # Strip embedding from output
     return [row_to_out(r) for r in rows]
 
 @app.get("/health")
@@ -252,12 +220,14 @@ def health():
     conn = get_db()
     count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
     conn.close()
-    return {"status": "ok", "memories": count, "model": MODEL_NAME}
+    return {"status": "ok", "memories": count, "model": "all-MiniLM-L6-v2"}
 
-# Serve static files for the public page
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 def public_page():
-    with open("/app/static/index.html") as f:
-        return f.read()
+    path = "/app/static/index.html"
+    if os.path.exists(path):
+        with open(path) as f:
+            return f.read()
+    return "<h1>Palkia Memory</h1><p>Public page coming soon.</p>"
