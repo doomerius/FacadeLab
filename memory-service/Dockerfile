@@ -9,7 +9,8 @@ RUN pip install --no-cache-dir \
     sentence-transformers \
     numpy
 
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2'); print('Model cached.')"
+# Pre-cache the embedding model at build time
+RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2'); print('Model cached.')"
 
 RUN mkdir -p /data /app/static
 
