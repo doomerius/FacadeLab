@@ -9,12 +9,10 @@ RUN pip install --no-cache-dir \
     sentence-transformers \
     numpy
 
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2'); print('Model cached.')"
-
-RUN mkdir -p /data /app/static
-
 COPY memory-service/main.py .
 COPY memory-service/static/ ./static/
+
+RUN mkdir -p /data
 
 EXPOSE 8081
 ENV MEMORY_API_KEY=palkia-memory-2026
