@@ -3,27 +3,24 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
-    git wget curl \
     libglib2.0-0 libsm6 libxext6 libxrender-dev libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies - use transformers for GroundingDINO (reliable, pre-compiled)
+# Install dependencies
 RUN pip install --no-cache-dir \
     fastapi "uvicorn[standard]" \
+    transformers>=4.38.0 \
+    Pillow numpy \
     torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
 
-RUN pip install --no-cache-dir \
-    transformers>=4.38.0 \
-    Pillow numpy
-
-# Pre-download GroundingDINO model at build time so startup is fast
-RUN python -c "
+# Pre-download GroundingDINO model at build time
+RUN python3 << 'PYEOF'
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 print('Downloading GroundingDINO-Tiny...')
 AutoProcessor.from_pretrained('IDEA-Research/grounding-dino-tiny')
 AutoModelForZeroShotObjectDetection.from_pretrained('IDEA-Research/grounding-dino-tiny')
 print('Done.')
-"
+PYEOF
 
 COPY main.py .
 
